@@ -4,5 +4,6 @@
 //! Ported from `de.osci.osci12` (governikus/osci-bib-java, tag 2.6.1).
 
 pub mod helper;
+pub mod message;
 pub mod soap;
 pub mod xml;
