@@ -8,10 +8,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/oracle/build"
 BCPROV="$(find "$HOME/.m2/repository/org/bouncycastle/bcprov-jdk18on" -name 'bcprov-jdk18on-*.jar' 2>/dev/null | sort | tail -1)"
+OSCI_JAR="$(find "$ROOT/reference/osci-bib-java" -name 'osci-bibliothek-*.jar' ! -name '*sources*' ! -name '*javadoc*' ! -name '*tests*' 2>/dev/null | sort | tail -1)"
+SLF4J="$(find "$HOME/.m2/repository/org/slf4j/slf4j-api" -name 'slf4j-api-*.jar' 2>/dev/null | grep -v sources | sort | tail -1)"
 
 if [ -z "$BCPROV" ]; then
   echo "bcprov jar not found in ~/.m2 - build the reference once (mvn verify) or run:" >&2
   echo "  mvn -q dependency:get -Dartifact=org.bouncycastle:bcprov-jdk18on:1.85.2" >&2
+  exit 1
+fi
+if [ -z "$OSCI_JAR" ]; then
+  echo "osci-bibliothek jar not found in reference/ - run 'mvn verify' there first" >&2
   exit 1
 fi
 
@@ -25,6 +31,6 @@ fi
 rm -rf "$OUT"
 mkdir -p "$OUT"
 # shellcheck disable=SC2046
-"$JAVAC" --release 11 -nowarn -cp "$BCPROV" -d "$OUT" $(find "$ROOT/oracle/src" -name '*.java')
-echo "$BCPROV" > "$OUT/classpath.txt"
+"$JAVAC" --release 11 -nowarn -cp "$OSCI_JAR:$BCPROV" -d "$OUT" $(find "$ROOT/oracle/src" -name '*.java')
+echo "$OSCI_JAR:$BCPROV:$SLF4J" > "$OUT/classpath.txt"
 echo "oracle compiled to $OUT"

@@ -1,4 +1,6 @@
-//! Shared helpers for osci-core integration tests.
+//! Shared helpers for osci-core integration tests. Not every test binary
+//! uses every helper.
+#![allow(dead_code)]
 
 use std::path::PathBuf;
 

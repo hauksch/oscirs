@@ -1,6 +1,7 @@
 package osci.oracle;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -66,10 +67,44 @@ public final class CryptoSpike {
       case "unwrap":
         cmdUnwrap(corpus);
         break;
+      case "canonize":
+        cmdCanonize();
+        break;
       default:
-        System.err.println("usage: CryptoSpike vectors|verify|unwrap");
+        System.err.println("usage: CryptoSpike vectors|verify|unwrap|canonize");
         System.exit(2);
     }
+  }
+
+  /**
+   * Canonicalize the XML from stdin with the reference Canonizer and print
+   * the canonical bytes plus the digest map, all base64-encoded, for
+   * differential testing against the Rust canonicalizer:
+   *   CANON_B64 <base64 of the canonical document>
+   *   DIGEST <#id> <base64 digest>
+   *   SIGNEDINFO <base64 | ->   (per entry, '-' for the null placeholder)
+   */
+  private static void cmdCanonize() throws Exception {
+    byte[] xml = System.in.readAllBytes();
+    de.osci.helper.Canonizer can = new de.osci.helper.Canonizer(new ByteArrayInputStream(xml), null);
+    ByteArrayOutputStream bos = new ByteArrayOutputStream();
+    can.transferTo(bos);
+    // NB: Canonizer stores e.getException(), which is null when the
+    // SAXException itself is the parse error - guard against silently
+    // empty output as well.
+    if (can.getCanException() != null || (bos.size() == 0 && xml.length > 0))
+    {
+      System.err.println("CANON_FAILED: " + can.getCanException());
+      System.exit(3);
+    }
+    Base64.Encoder b64 = Base64.getEncoder();
+    System.out.println("CANON_B64 " + b64.encodeToString(bos.toByteArray()));
+    can.getDigestValues().forEach((id, digest) -> System.out.println("DIGEST " + id + " " + b64.encodeToString(digest)));
+    can.getSignedInfos().forEach(si -> System.out.println("SIGNEDINFO " + (si == null ? "-" : b64.encodeToString(si))));
+    for (String prop : can.getSignedProperties())
+      System.out.println("SIGNEDPROP " + b64.encodeToString(prop.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    for (String ns : can.getContainerNS())
+      System.out.println("COCONS " + b64.encodeToString(ns.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
   }
 
   private static void cmdVectors(String corpus) throws Exception {
