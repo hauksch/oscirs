@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<jaxb:bindings xmlns:jaxb="http://java.sun.com/xml/ns/jaxb" xmlns="http://maven.apache.org/POM/4.0.0"
+               xmlns:xs="http://www.w3.org/2001/XMLSchema" jaxb:extensionBindingPrefixes="xjc" version="2.1">
+    <jaxb:bindings node="/xs:schema" schemaLocation="ws-addr.xsd">
+        <jaxb:schemaBindings>
+            <jaxb:package name="org.apache.cxf.ws.addressing"/>
+        </jaxb:schemaBindings>
+    </jaxb:bindings>
+</jaxb:bindings>

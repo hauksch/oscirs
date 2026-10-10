@@ -1,0 +1,9 @@
+[package]
+name = "osci-transport"
+description = "OSCI-Transport 1.2 Transport SPI and HTTP implementation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]

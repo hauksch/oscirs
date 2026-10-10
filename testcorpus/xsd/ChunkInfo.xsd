@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+	elementFormDefault="qualified">
+	<xs:complexType name="ChunkInformationType">
+		<xs:attribute name="ChunkNumber" use="required" />
+		<xs:attribute name="ChunkSize" use="required" />
+		<xs:attribute name="MessageId" use="required" />
+		<xs:attribute name="ReceivedChunks" use="required" />
+		<xs:attribute name="TotalChunkNumbers" use="required" />
+		<xs:attribute name="TotalMessageSize" use="required" />
+	</xs:complexType>
+</xs:schema>

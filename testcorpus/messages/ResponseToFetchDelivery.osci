@@ -1,0 +1,186 @@
+
+MIME-Version: 1.0
+Content-Type: Multipart/Related; boundary=MIME_boundary; type=text/xml
+
+--MIME_boundary
+Content-Type: text/xml; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+Content-ID: <osci@message>
+
+<?xml version="1.0" encoding="UTF-8"?>
+
+<soap:Envelope xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://schemas.xmlsoap.org/soap/envelope/ soapResponseToFetchDelivery.xsd http://www.w3.org/2000/09/xmldsig# oscisig.xsd http://www.w3.org/2001/04/xmlenc# oscienc.xsd"><soap:Header><osci:ControlBlock xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ConversationId="11308526442960" Id="controlblock" SequenceNumber="0" soap:actor="http://schemas.xmlsoap.org/soap/actor/next" soap:mustUnderstand="1"><osci:Response>FOKrXGkpIfnZ/Q==</osci:Response><osci:Challenge>yZdiDfiG/UdT3g==</osci:Challenge></osci:ControlBlock><osci:SupplierSignature Id="suppliersignature" soap:actor="http://schemas.xmlsoap.org/soap/actor/next" soap:mustUnderstand="1"><ds:Signature><ds:SignedInfo>
+<ds:CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></ds:CanonicalizationMethod>
+<ds:SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"></ds:SignatureMethod>
+<ds:Reference URI="#controlblock">
+<ds:Transforms>
+<ds:Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></ds:Transform>
+</ds:Transforms>
+<ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></ds:DigestMethod>
+<ds:DigestValue>14D+7TNAkDFn7y7k8di6al+Ssog=</ds:DigestValue>
+</ds:Reference>
+<ds:Reference URI="#responsetofetchdelivery">
+<ds:Transforms>
+<ds:Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></ds:Transform>
+</ds:Transforms>
+<ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></ds:DigestMethod>
+<ds:DigestValue>faqN2cUTfwF1E2gMzNrhhhfOWag=</ds:DigestValue>
+</ds:Reference>
+<ds:Reference URI="cid:enc_test.txt">
+<ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></ds:DigestMethod>
+<ds:DigestValue>9wtmHNZhknN5+quGdsJuFU3riUs=</ds:DigestValue>
+</ds:Reference>
+<ds:Reference URI="cid:test.txt">
+<ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></ds:DigestMethod>
+<ds:DigestValue>UHFB1ZE3WLrTSmtM7j6asnYVoko=</ds:DigestValue>
+</ds:Reference>
+<ds:Reference URI="#intermediarycertificates">
+<ds:Transforms>
+<ds:Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></ds:Transform>
+</ds:Transforms>
+<ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></ds:DigestMethod>
+<ds:DigestValue>TQtQB2oq+foWBVlGmYJtQoN4EjM=</ds:DigestValue>
+</ds:Reference>
+<ds:Reference URI="#nonintermediarycertificates">
+<ds:Transforms>
+<ds:Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></ds:Transform>
+</ds:Transforms>
+<ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></ds:DigestMethod>
+<ds:DigestValue>hUOS3/4KMZFegOPtWuK5BKDDZYY=</ds:DigestValue>
+</ds:Reference>
+<ds:Reference URI="#body">
+<ds:Transforms>
+<ds:Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></ds:Transform>
+</ds:Transforms>
+<ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></ds:DigestMethod>
+<ds:DigestValue>IXCnaVPvdEj+aAy5hzSAbDblVH0=</ds:DigestValue>
+</ds:Reference>
+</ds:SignedInfo><ds:SignatureValue>mqZWmgxmTdJ1JL/5RvezLrgYKtiI+h9iYKyfN2DO2NJ8F068ztDm27hHlOmd0IfTrGzJ8Y+dDbqn
+ECHB1J+dYgrep/yeJsilmUa10dNhMyqP6+TM4G+vYcxM94ixiLpO76uSomDjHdJrEIc3Z7p6QdVa
+n0Zq1FB6cr6NQzh6R6I=</ds:SignatureValue><ds:KeyInfo><ds:RetrievalMethod URI="#intermed_signature_be55caa84c947723c57628caa68218786474fc5d"></ds:RetrievalMethod></ds:KeyInfo></ds:Signature></osci:SupplierSignature><osci:responseToFetchDelivery xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Id="responsetofetchdelivery" soap:actor="http://schemas.xmlsoap.org/soap/actor/next" soap:mustUnderstand="1"><osci:Feedback><osci:Entry xml:lang="de"><osci:Code>0801</osci:Code><osci:Text>Auftrag ausgeführt, Dialog weiterhin geöffnet</osci:Text></osci:Entry></osci:Feedback><osci:fetchDelivery><osci:SelectionRule><osci:MessageId>MTEzMDg1MjYzNjk2ODE=</osci:MessageId></osci:SelectionRule></osci:fetchDelivery><osci:ProcessCardBundle><osci:MessageId>MTEzMDg1MjYzNjk2ODE=</osci:MessageId><osci:ProcessCard RecentModification="2005-11-01T14:44:06+01:00"><osci:Creation><osci:Plain>2005-11-01T14:44:00+01:00</osci:Plain></osci:Creation><osci:Forwarding><osci:Plain>2005-11-01T14:44:06+01:00</osci:Plain></osci:Forwarding><osci:Subject>Subject</osci:Subject></osci:ProcessCard><osci:InspectionReport><osci:Inspection><osci:Timestamp><osci:Plain>2005-11-01T14:44:00+01:00</osci:Plain></osci:Timestamp><osci:X509SubjectName>1.2.840.113549.1.9.1=#1611626f7340626f732d6272656d656e2e6465,CN=Test Zertifikat OSCI-Manager VPS,OU=PE,O=bos,C=DE</osci:X509SubjectName><osci:X509IssuerName>1.2.840.113549.1.9.1=#1612696e666f40626f732d6272656d656e2e6465,CN=bremen-online-services CA 2,OU=bremen-online-services CA Technik,O=\ bremen-online-services CA,C=de</osci:X509IssuerName><osci:X509SerialNumber>-308305484</osci:X509SerialNumber><osci:CertType Type="unknown"></osci:CertType><osci:MathResult Result="indeterminate"></osci:MathResult><osci:OfflineResult Result="indeterminate"></osci:OfflineResult><osci:OnlineResult Result="revoked"><osci:CRL>2005-11-01T14:44:00+01:00</osci:CRL><osci:OCSP>ocspcheck</osci:OCSP></osci:OnlineResult></osci:Inspection><osci:Inspection><osci:Timestamp><osci:Plain>2005-11-01T14:44:00+01:00</osci:Plain></osci:Timestamp><osci:X509SubjectName>1.2.840.113549.1.9.1=#1611626f7340626f732d6272656d656e2e6465,CN=Test Zertifikat OSCI-Manager VPS,OU=PE,O=bos,C=DE</osci:X509SubjectName><osci:X509IssuerName>1.2.840.113549.1.9.1=#1612696e666f40626f732d6272656d656e2e6465,CN=bremen-online-services CA 2,OU=bremen-online-services CA Technik,O=\ bremen-online-services CA,C=de</osci:X509IssuerName><osci:X509SerialNumber>-308305484</osci:X509SerialNumber><osci:CertType Type="unknown"></osci:CertType><osci:MathResult Result="indeterminate"></osci:MathResult><osci:OfflineResult Result="indeterminate"></osci:OfflineResult><osci:OnlineResult Result="revoked"><osci:CRL>2005-11-01T14:44:00+01:00</osci:CRL><osci:OCSP>ocspcheck</osci:OCSP></osci:OnlineResult></osci:Inspection><osci:Inspection><osci:Timestamp><osci:Plain>2005-11-01T14:44:00+01:00</osci:Plain></osci:Timestamp><osci:X509SubjectName>1.2.840.113549.1.9.1=#1612696e666f40626f732d6272656d656e2e6465,CN=Sender 01,OU=PE,O=bos,C=DE</osci:X509SubjectName><osci:X509IssuerName>1.2.840.113549.1.9.1=#1612696e666f40626f732d6272656d656e2e6465,CN=bremen-online-services CA 2,OU=bremen-online-services CA Technik,O=\ bremen-online-services CA,C=de</osci:X509IssuerName><osci:X509SerialNumber>40444694</osci:X509SerialNumber><osci:CertType Type="unknown"></osci:CertType><osci:MathResult Result="indeterminate"></osci:MathResult><osci:OfflineResult Result="indeterminate"></osci:OfflineResult><osci:OnlineResult Result="revoked"><osci:CRL>2005-11-01T14:44:00+01:00</osci:CRL><osci:OCSP>ocspcheck</osci:OCSP></osci:OnlineResult></osci:Inspection><osci:Inspection><osci:Timestamp><osci:Plain>2005-11-01T14:44:00+01:00</osci:Plain></osci:Timestamp><osci:X509SubjectName>1.2.840.113549.1.9.1=#1612696e666f40626f732d6272656d656e2e6465,CN=Sender 01,OU=PE,O=bos,C=DE</osci:X509SubjectName><osci:X509IssuerName>1.2.840.113549.1.9.1=#1612696e666f40626f732d6272656d656e2e6465,CN=bremen-online-services CA 2,OU=bremen-online-services CA Technik,O=\ bremen-online-services CA,C=de</osci:X509IssuerName><osci:X509SerialNumber>40444694</osci:X509SerialNumber><osci:CertType Type="unknown"></osci:CertType><osci:MathResult Result="indeterminate"></osci:MathResult><osci:OfflineResult Result="indeterminate"></osci:OfflineResult><osci:OnlineResult Result="revoked"><osci:CRL>2005-11-01T14:44:00+01:00</osci:CRL><osci:OCSP>ocspcheck</osci:OCSP></osci:OnlineResult></osci:Inspection><osci:Inspection><osci:Timestamp><osci:Plain>2005-11-01T14:44:00+01:00</osci:Plain></osci:Timestamp><osci:X509SubjectName>1.2.840.113549.1.9.1=#1612696e666f40626f732d6272656d656e2e6465,CN=Empfaenger 01,OU=PE,O=bos,C=DE</osci:X509SubjectName><osci:X509IssuerName>1.2.840.113549.1.9.1=#1612696e666f40626f732d6272656d656e2e6465,CN=bremen-online-services CA 2,OU=bremen-online-services CA Technik,O=\ bremen-online-services CA,C=de</osci:X509IssuerName><osci:X509SerialNumber>41137500</osci:X509SerialNumber><osci:CertType Type="unknown"></osci:CertType><osci:MathResult Result="indeterminate"></osci:MathResult><osci:OfflineResult Result="indeterminate"></osci:OfflineResult><osci:OnlineResult Result="revoked"><osci:CRL>2005-11-01T14:44:00+01:00</osci:CRL><osci:OCSP>ocspcheck</osci:OCSP></osci:OnlineResult></osci:Inspection><osci:Inspection><osci:Timestamp><osci:Plain>2005-11-01T14:44:00+01:00</osci:Plain></osci:Timestamp><osci:X509SubjectName>1.2.840.113549.1.9.1=#1612696e666f40626f732d6272656d656e2e6465,CN=Leser 01,OU=PE,O=bos,C=DE</osci:X509SubjectName><osci:X509IssuerName>1.2.840.113549.1.9.1=#1612696e666f40626f732d6272656d656e2e6465,CN=bremen-online-services CA 2,OU=bremen-online-services CA Technik,O=\ bremen-online-services CA,C=de</osci:X509IssuerName><osci:X509SerialNumber>41041125</osci:X509SerialNumber><osci:CertType Type="unknown"></osci:CertType><osci:MathResult Result="indeterminate"></osci:MathResult><osci:OfflineResult Result="indeterminate"></osci:OfflineResult><osci:OnlineResult Result="revoked"><osci:CRL>2005-11-01T14:44:00+01:00</osci:CRL><osci:OCSP>ocspcheck</osci:OCSP></osci:OnlineResult></osci:Inspection></osci:InspectionReport></osci:ProcessCardBundle></osci:responseToFetchDelivery><osci:IntermediaryCertificates xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Id="intermediarycertificates" soap:actor="http://www.w3.org/2001/12/soap-envelope/actor/none" soap:mustUnderstand="1"><osci:SignatureCertificateIntermediary Id="intermed_signature_be55caa84c947723c57628caa68218786474fc5d"><ds:X509Data><ds:X509Certificate>MIIC4jCCAkugAwIBAgIE7Z+htDANBgkqhkiG9w0BAQUFADCBpzELMAkGA1UEBhMCZGUxIzAhBgNV
+BAoTGiBicmVtZW4tb25saW5lLXNlcnZpY2VzIENBMSowKAYDVQQLEyFicmVtZW4tb25saW5lLXNl
+cnZpY2VzIENBIFRlY2huaWsxJDAiBgNVBAMTG2JyZW1lbi1vbmxpbmUtc2VydmljZXMgQ0EgMjEh
+MB8GCSqGSIb3DQEJARYSaW5mb0Bib3MtYnJlbWVuLmRlMB4XDTA0MDkxMDEzMTIzNFoXDTA2MDkx
+MDEzMTIzNFowdTELMAkGA1UEBhMCREUxDDAKBgNVBAoTA2JvczELMAkGA1UECxMCUEUxKTAnBgNV
+BAMTIFRlc3QgWmVydGlmaWthdCBPU0NJLU1hbmFnZXIgVlBTMSAwHgYJKoZIhvcNAQkBFhFib3NA
+Ym9zLWJyZW1lbi5kZTCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEAp6Y0E0K1AI9DWG4JvZUr
+j0gOsp4oQyIvYEK78AVRTlX0BVn5BdmQcs8aaXBb06LMf5KCTZJOLKzMfExSTQG9xe1W2SxguThs
+AeK9zNv2AoqfNCdidwt7BiYpPapoGrn67kDY9XtYNG0t5CMiXpzB2THWVRLzwfNTZ2hhFWZm1IEC
+AwEAAaNMMEowCwYDVR0PBAQDAgP4MB0GA1UdDgQWBBTcok4XaNCo0ickYJ0V8FIOYl6gKTARBglg
+hkgBhvhCAQEEBAMCBaAwCQYDVR0TBAIwADANBgkqhkiG9w0BAQUFAAOBgQA74s1UBc9iEQc4u37D
+QgDCqtAym8RIiEYlaV8dbIa11jDPQG3SotZV2lzxqtTaRNHiDXqnQp1SmeSRN/3etB0jcY2ojuPt
+ANgUhsOE8nPzzZCG431P73RIPfT+NRm2uXFc3+xSiFlSxu0fYPU+idJyLwXBQNdjMfIzVNe0rLVq
+4A==</ds:X509Certificate></ds:X509Data></osci:SignatureCertificateIntermediary></osci:IntermediaryCertificates><osci:NonIntermediaryCertificates xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Id="nonintermediarycertificates" soap:actor="http://www.w3.org/2001/12/soap-envelope/actor/none" soap:mustUnderstand="1"><osci:CipherCertificateOriginator Id="originator_cipher_aa44d257eb989d4e0c065bb7ae83d622198cdf69"><ds:X509Data><ds:X509Certificate>MIICzDCCAjWgAwIBAgIEAmkjFjANBgkqhkiG9w0BAQUFADCBpzELMAkGA1UEBhMCZGUxIzAhBgNV
+BAoTGiBicmVtZW4tb25saW5lLXNlcnZpY2VzIENBMSowKAYDVQQLEyFicmVtZW4tb25saW5lLXNl
+cnZpY2VzIENBIFRlY2huaWsxJDAiBgNVBAMTG2JyZW1lbi1vbmxpbmUtc2VydmljZXMgQ0EgMjEh
+MB8GCSqGSIb3DQEJARYSaW5mb0Bib3MtYnJlbWVuLmRlMB4XDTA0MDkxNDE0MDUwNVoXDTA2MDkx
+NDE0MDUwNVowXzELMAkGA1UEBhMCREUxDDAKBgNVBAoTA2JvczELMAkGA1UECxMCUEUxEjAQBgNV
+BAMTCVNlbmRlciAwMTEhMB8GCSqGSIb3DQEJARYSaW5mb0Bib3MtYnJlbWVuLmRlMIGfMA0GCSqG
+SIb3DQEBAQUAA4GNADCBiQKBgQCM/x6KK7VRQeagiHk+gMcSSHzE92sSnxP2kTnkUi5H8xmD8Web
+zY6zyuzaHqpK2+J11DuMpQz6rpgbgezyjgnbeD41NVIgpnD1N+NCOy4fvCD7eNHzTsrUR/oQuiyU
+aDSUcL14cMWB5E84MIIj7INpJa9FmW13X5GGA3TGAkk1nQIDAQABo0wwSjALBgNVHQ8EBAMCA/gw
+HQYDVR0OBBYEFFxz+wIkH1s7sciQdtOVfnDqYj/NMBEGCWCGSAGG+EIBAQQEAwIFoDAJBgNVHRME
+AjAAMA0GCSqGSIb3DQEBBQUAA4GBAAcmOWpubysO2S6xfYkp8++kJv3nDwSgSuB5rGqD99DYZirm
+JxA8K1oL2m9v2GIR5Fn/r886C2ybDKF0kZokFmdYC3WE2s3FDO9K2hdBsmyBglfS9wrP2OP2E/Ow
+ssVM7jhkaa2DoSlf6AADs+F4056BOyS2OzLsP8OO5ufo70aM</ds:X509Certificate></ds:X509Data></osci:CipherCertificateOriginator><osci:CipherCertificateAddressee Id="addressee_cipher_e268d263a7ff8f441dc71dcbfdee3999a09c5243"><ds:X509Data><ds:X509Certificate>MIIC0DCCAjmgAwIBAgIEAnO1XDANBgkqhkiG9w0BAQUFADCBpzELMAkGA1UEBhMCZGUxIzAhBgNV
+BAoTGiBicmVtZW4tb25saW5lLXNlcnZpY2VzIENBMSowKAYDVQQLEyFicmVtZW4tb25saW5lLXNl
+cnZpY2VzIENBIFRlY2huaWsxJDAiBgNVBAMTG2JyZW1lbi1vbmxpbmUtc2VydmljZXMgQ0EgMjEh
+MB8GCSqGSIb3DQEJARYSaW5mb0Bib3MtYnJlbWVuLmRlMB4XDTA0MDkxNDE0MTYzOFoXDTA2MDkx
+NDE0MTYzOFowYzELMAkGA1UEBhMCREUxDDAKBgNVBAoTA2JvczELMAkGA1UECxMCUEUxFjAUBgNV
+BAMTDUVtcGZhZW5nZXIgMDExITAfBgkqhkiG9w0BCQEWEmluZm9AYm9zLWJyZW1lbi5kZTCBnzAN
+BgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEAtq60TfoJZgdictjUmcv2KYVSDMuWxkQwDa8dWPHjlfCv
+Tm4/4UdJVPwyRfRvfYnAcMM2cnmMV56O0/p18EYphBeI31y7KE1eqpwdBOXEo5bIGbNDV/urypXH
+mTU/81rC+PFXYNhFN0cNzPJPQu9NEEAZsSMLH0EadRjtY189E3MCAwEAAaNMMEowCwYDVR0PBAQD
+AgP4MB0GA1UdDgQWBBRvDphM1cioILsmSufM9MdlLxfrrjARBglghkgBhvhCAQEEBAMCBaAwCQYD
+VR0TBAIwADANBgkqhkiG9w0BAQUFAAOBgQBVEMxmkHezA9HE/P1MII0Uo5WL7Qtv/UXsi19IKnUO
+8qyhhRa7NTWtplDLTcJCiXnPrtzoixiRUHS7JXhvWV2t1hb3yBKpCT1+XKjJ96S6FYxCYvPMSW5+
+KicHA8OLsov6VFTxuJnr2RkxvusCQk8BApgWnEe+4zGm4h/tQVP64g==</ds:X509Certificate></ds:X509Data></osci:CipherCertificateAddressee><osci:CipherCertificateOtherReader Id="reader0_cipher_a5ed201258618adb054546e503e685a32ab73968"><ds:X509Data><ds:X509Certificate>MIICyzCCAjSgAwIBAgIEAnI85TANBgkqhkiG9w0BAQUFADCBpzELMAkGA1UEBhMCZGUxIzAhBgNV
+BAoTGiBicmVtZW4tb25saW5lLXNlcnZpY2VzIENBMSowKAYDVQQLEyFicmVtZW4tb25saW5lLXNl
+cnZpY2VzIENBIFRlY2huaWsxJDAiBgNVBAMTG2JyZW1lbi1vbmxpbmUtc2VydmljZXMgQ0EgMjEh
+MB8GCSqGSIb3DQEJARYSaW5mb0Bib3MtYnJlbWVuLmRlMB4XDTA0MDkxNDE0MTUwMVoXDTA2MDkx
+NDE0MTUwMVowXjELMAkGA1UEBhMCREUxDDAKBgNVBAoTA2JvczELMAkGA1UECxMCUEUxETAPBgNV
+BAMTCExlc2VyIDAxMSEwHwYJKoZIhvcNAQkBFhJpbmZvQGJvcy1icmVtZW4uZGUwgZ8wDQYJKoZI
+hvcNAQEBBQADgY0AMIGJAoGBAIy4L4X44b9z6odCj75JfbSRxu//+OJ1cok/hwBBIM/txmY1yb53
+ii5CPJ2uoci01SLpZaIzWknGd39NA9HLN3r7Gqp4OqPZJhotlYc9Kq+4A9ZQ4YFjSjIIwauvk/VN
+sGYFHV+EeNZaBsiwoY67IxLxNV0QFZEJ4KFTFC+308kBAgMBAAGjTDBKMAsGA1UdDwQEAwID+DAd
+BgNVHQ4EFgQUh+tW5nF34BkTmgfQ7AlOCZjeaRowEQYJYIZIAYb4QgEBBAQDAgWgMAkGA1UdEwQC
+MAAwDQYJKoZIhvcNAQEFBQADgYEAD38gXjn6vUIjJFdVUTEgfe0zZgaUnXlZtqvYB/dvulijwZs1
+6vSAG5i5yCqX/MdUa3DCDvN3rZAH3D7xVfvQeEO64WFPIMfFUrW6qvpmOYPPcJvspSrBpME3uTcE
+mmS4GiNV+iaW6SwxlH3iF+3DrjotHZQ7OneH0EEOiVgs46w=</ds:X509Certificate></ds:X509Data></osci:CipherCertificateOtherReader><osci:SignatureCertificateOriginator Id="originator_signature_aa44d257eb989d4e0c065bb7ae83d622198cdf69"><ds:X509Data><ds:X509Certificate>MIICzDCCAjWgAwIBAgIEAmkjFjANBgkqhkiG9w0BAQUFADCBpzELMAkGA1UEBhMCZGUxIzAhBgNV
+BAoTGiBicmVtZW4tb25saW5lLXNlcnZpY2VzIENBMSowKAYDVQQLEyFicmVtZW4tb25saW5lLXNl
+cnZpY2VzIENBIFRlY2huaWsxJDAiBgNVBAMTG2JyZW1lbi1vbmxpbmUtc2VydmljZXMgQ0EgMjEh
+MB8GCSqGSIb3DQEJARYSaW5mb0Bib3MtYnJlbWVuLmRlMB4XDTA0MDkxNDE0MDUwNVoXDTA2MDkx
+NDE0MDUwNVowXzELMAkGA1UEBhMCREUxDDAKBgNVBAoTA2JvczELMAkGA1UECxMCUEUxEjAQBgNV
+BAMTCVNlbmRlciAwMTEhMB8GCSqGSIb3DQEJARYSaW5mb0Bib3MtYnJlbWVuLmRlMIGfMA0GCSqG
+SIb3DQEBAQUAA4GNADCBiQKBgQCM/x6KK7VRQeagiHk+gMcSSHzE92sSnxP2kTnkUi5H8xmD8Web
+zY6zyuzaHqpK2+J11DuMpQz6rpgbgezyjgnbeD41NVIgpnD1N+NCOy4fvCD7eNHzTsrUR/oQuiyU
+aDSUcL14cMWB5E84MIIj7INpJa9FmW13X5GGA3TGAkk1nQIDAQABo0wwSjALBgNVHQ8EBAMCA/gw
+HQYDVR0OBBYEFFxz+wIkH1s7sciQdtOVfnDqYj/NMBEGCWCGSAGG+EIBAQQEAwIFoDAJBgNVHRME
+AjAAMA0GCSqGSIb3DQEBBQUAA4GBAAcmOWpubysO2S6xfYkp8++kJv3nDwSgSuB5rGqD99DYZirm
+JxA8K1oL2m9v2GIR5Fn/r886C2ybDKF0kZokFmdYC3WE2s3FDO9K2hdBsmyBglfS9wrP2OP2E/Ow
+ssVM7jhkaa2DoSlf6AADs+F4056BOyS2OzLsP8OO5ufo70aM</ds:X509Certificate></ds:X509Data></osci:SignatureCertificateOriginator></osci:NonIntermediaryCertificates></soap:Header><soap:Body xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Id="body"><osci:ContentPackage><osci:ContentContainer Id="contentcontainer0"><ds:Signature><ds:SignedInfo>
+<ds:CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></ds:CanonicalizationMethod>
+<ds:SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"></ds:SignatureMethod>
+<ds:Reference URI="#content0">
+<ds:Transforms>
+<ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#base64"></ds:Transform>
+</ds:Transforms>
+<ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></ds:DigestMethod>
+<ds:DigestValue>WlaRETTcgq5sqA+/dHr8g5rc8eo=</ds:DigestValue>
+</ds:Reference>
+<ds:Reference URI="#content1">
+<ds:Transforms>
+<ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#base64"></ds:Transform>
+</ds:Transforms>
+<ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></ds:DigestMethod>
+<ds:DigestValue>+4vccrsV6ETeJvMrEGE6ZZ28V8I=</ds:DigestValue>
+</ds:Reference>
+<ds:Reference URI="#content2">
+<ds:Transforms>
+<ds:Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></ds:Transform>
+</ds:Transforms>
+<ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></ds:DigestMethod>
+<ds:DigestValue>T8egl9B6YuAyN8bIbxUZGk0ZgdM=</ds:DigestValue>
+</ds:Reference>
+<ds:Reference URI="cid:test.txt">
+<ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></ds:DigestMethod>
+<ds:DigestValue>UHFB1ZE3WLrTSmtM7j6asnYVoko=</ds:DigestValue>
+</ds:Reference>
+</ds:SignedInfo><ds:SignatureValue>iC8mqLLLzZOPL09EzncynpmqupvwrJiXUgFbVPZqRz1OEdRiPlsY97Eyw2epMGERzP46PG2R/Pnp
+hvu43bRIsFBeJ3EqdKzwHq3kKpO3hLUOq9QvrdyEDo20oTcrasZX27B6KGmlkrQNCkB//3x1Fwno
+DlEM8ewSUWaSC/bcrFI=</ds:SignatureValue><ds:KeyInfo><ds:RetrievalMethod URI="#originator_signature_aa44d257eb989d4e0c065bb7ae83d622198cdf69"></ds:RetrievalMethod></ds:KeyInfo></ds:Signature><osci:Content><osci:Base64Content Id="content0">QW55IGNvbnRlbnQgZGF0YS4=</osci:Base64Content></osci:Content><osci:Content><osci:Base64Content Id="content1">QW55IGNvbnRlbnQgZGF0YTIu</osci:Base64Content></osci:Content><osci:Content Id="content2" href="cid:test.txt"></osci:Content></osci:ContentContainer><xenc:EncryptedData Id="encdata_0" MimeType="text/xml"><xenc:EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc"></xenc:EncryptionMethod><ds:KeyInfo><xenc:EncryptedKey><xenc:EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#rsa-1_5"></xenc:EncryptionMethod><ds:KeyInfo><ds:RetrievalMethod Type="http://www.w3.org/2000/09/xmldsig#X509Data" URI="#reader0_cipher_a5ed201258618adb054546e503e685a32ab73968"></ds:RetrievalMethod></ds:KeyInfo><xenc:CipherData><xenc:CipherValue>KUU8cmASsroOuWr4exKByqbKY+rO2H5iSB1xiKa8LclfelReDK6KDtKMR6DhGDZyuPlVMLtZxV2p
+oITCDgKl76tC5XyxTyv7tOmqTiTNgCGZORTf4rQcsOGUZ6+F42mO888eD2i/xIHN2QK5rAkodPEe
+s5GQAu3MCIYH2cP1VDM=</xenc:CipherValue></xenc:CipherData></xenc:EncryptedKey></ds:KeyInfo><xenc:CipherData><xenc:CipherValue>2raQQLd5QIYeRebpYVwm3h4OpGjcD2sIT0o4Dwy8WtGtvspfvFSjXyqbBOFuf55I5n7NEN9VLn5c
+EZ6E5uNTO+ReJfsreqC00byxRulIfye9icHc37ceZJpnK/+AxOA9Vty4NGp4GMKo3JFwuRLixR+v
+WaJvHl2A4Q04uMJ8IGONPKetjyD+5XSpeugnuOqqTrel0MfIVrUtcF3AKlQhcx4L3TT5+jQiJ4yd
+3YdLyGsP/OjNN8QuKFbzuHrwVIWqH0/2jhv1y+bsr7O7TBpcSBA48Cj3kxABogpe2HYAP1gSay0U
+q5esvGFIHPiyyGf2MUon9TkGqx89Aww0mlJcrB+HPunogGKZelZsTnGAQA+zKeB7ZU3eo+F+rNEr
+LiJ08nFWU2J3odBMvmqC1ck/B3DIVnZJ3zmwZ0Sf3h2D1tS3zPL5rgRMK+kV2iL2neJrcj9dOOsG
+q0KF5I+U5U//PVOvh98NqqBWdf2l3UJZWm9EIMsov6O1NYbCBSD1N7qM6AmaI6NYAjRbqEpkFixR
+2JWeZQETAppj/mE3FMWR69vR6Xb+p0/6LW1qsUwQWMYpnw6eGr0mHz2ZyGRYHRhi/T8Yy4orVYKx
+6AonTXcf9qkW82/mXX+Dxs99YBxK2OrZtp2SC8C0E7F++UgH1DpYJ28ciqWsZmF2Y3zO2oam473t
+cRVn0aSnKisMIueycA3uPlzJJaPWhZhVGhQalMPsr1azWrRXMJ9o+Ni1fk8CrvOLUtUYuSqtaZL6
+/XUAMTfd6T6B9xA8oG65awg1zIoOpBnIbKTHZ2uexS4hAUGIQSwAZSCMdiFKQ2DoUgqAWEjcuA3V
+fvzSRWS0Qt06Cn2JPxCb9lrXiO24XgWbpW2ejBsMojc03Ci7dU+1K9AEdWbgBTJ46j+WRcZYJzXr
+H4D0wgorQfuZuOdGewGKoU6z9DmmvijWsBffrVRlBH7WZRyekPlVRQjYNl4ZmqVSm2t76DK4RFsJ
+34qchQYhtchA5vpb39JL7lwTLlCOzygaTymL/E4Ltzp6l7Bf4M3zHKa4IP2Tpd1Wb79XPKDdf4Lv
+xKcQtrMWYwTYBy8Aa9PAdjOBvjqdC/vmHr4SwI94YvtJWwKGXm6fok49DKCwKQggZt9FU0u4K1qB
+vmXs5Lqztlbzvc5+nb2Ud/7R+ne2fEQHxXaERlrV6sPwypP+9eNVPW7BZnI0D7Uad1vLtSpgq2z/
+jFpPeypN+4tFZakE8UwJ6DONg3gcqR76vZJfWFarOjzmU0X8a1Ah8vloN1OfpPMmxM0G7uJWDD5R
+gnjr8WmWhkTSZckSw2+oAhCtEtGkoyRQX1ikvsSd0/5on9DGrCE32oM6A91Kwtp9KjA3swBudA==
+</xenc:CipherValue></xenc:CipherData></xenc:EncryptedData></osci:ContentPackage></soap:Body></soap:Envelope>
+--MIME_boundary
+Content-Type: application/octet-stream
+Content-Transfer-Encoding: base64
+Content-ID: <enc_test.txt>
+Content-Length: 56
+
+EVlY3Hbxe18nkw9T+koFEKiJX80y3Zk6Tpg4TUEREQa6GVLbSXzGVg==
+--MIME_boundary
+Content-Type: application/octet-stream
+Content-Transfer-Encoding: base64
+Content-ID: <test.txt>
+Content-Length: 44
+
+QW55IHVuZW5jcnlwdGVkIGF0dGFjaG1lbnQgZGF0YS4=
+--MIME_boundary--

@@ -1,0 +1,43 @@
+<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:osci2017="http://xoev.de/transport/osci12/7" targetNamespace="http://xoev.de/transport/osci12/7" elementFormDefault="qualified" attributeFormDefault="unqualified">
+	<!-- [KORR8] lokalen Pfad ersetzt -->
+	<xsd:import namespace="http://www.w3.org/XML/1998/namespace" schemaLocation="http://www.w3.org/2001/xml.xsd"/>
+	<xsd:annotation>
+		<xsd:documentation xml:lang="de">
+			OSCI 2017 - Allgemeine
+			Typen und Strukturen zur effiziente Uebermittlung
+			grosser Daten
+			Dateiname: EFFI.xsd
+		</xsd:documentation>
+	</xsd:annotation>
+	<!-- ### global complex types and templates ### -->
+	<xsd:complexType name="ChunkInformationTemplate">
+		<xsd:attribute name="ChunkNumber" type="xsd:integer" use="optional"/>
+		<xsd:attribute name="ChunkSize" type="xsd:integer" use="optional"/>
+		<xsd:attribute name="ReceivedChunks" type="xsd:string" use="optional"/>
+		<xsd:attribute name="TotalChunkNumbers" type="xsd:integer" use="optional"/>
+		<xsd:attribute name="TotalMessageSize" type="xsd:integer" use="optional"/>
+	</xsd:complexType>
+	<xsd:complexType name="FeatureType">
+		<xsd:attribute name="Key" type="xsd:string" use="required"/>
+		<xsd:attribute name="Version" type="xsd:string" use="required"/>
+	</xsd:complexType>
+	<xsd:element name="FeatureDescription" type="osci2017:FeatureDescriptionType"/>
+	<xsd:complexType name="FeatureDescriptionType">
+		<xsd:sequence>
+			<xsd:element name="SupportedFeatures" type="osci2017:SupportedFeaturesType"/>
+		</xsd:sequence>
+		<xsd:attribute name="Id" type="xsd:ID" use="required"/>
+		<xsd:attribute name="MaxChunkSize" type="xsd:positiveInteger"/>
+		<!-- [KORR8] MaxMessageSize anstelle von type="xsd:positiveInteger"  nun type="xsd:nonNegativeInteger" -->
+		<xsd:attribute name="MaxMessageSize" type="xsd:nonNegativeInteger"/>
+		<xsd:attribute name="MinChunkSize" type="xsd:positiveInteger"/>
+		<!-- [KORR8] anstelle von "ChunkMessageTimeOut" nun "ChunkMessageTimeout" (kleines 'o')	anstelle von type="xsd:positiveInteger"  nun type="xsd:nonNegativeInteger"-->
+		<xsd:attribute name="ChunkMessageTimeout" type="xsd:nonNegativeInteger"/>
+	</xsd:complexType>
+	<xsd:complexType name="SupportedFeaturesType">
+		<xsd:sequence maxOccurs="unbounded">
+			<xsd:element name="Feature" type="osci2017:FeatureType"/>
+		</xsd:sequence>
+		<!-- [KORR8] maxOccurs fehlte - eingetragen -->
+	</xsd:complexType>
+</xsd:schema>

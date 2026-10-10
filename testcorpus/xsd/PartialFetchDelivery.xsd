@@ -1,0 +1,59 @@
+<xsd:schema
+	targetNamespace="http://xoev.de/transport/osci12/7"
+	xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+	xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+	xmlns:osci="http://www.osci.de/2002/04/osci"
+	xmlns:osci2017="http://xoev.de/transport/osci12/7"
+	xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
+	xmlns:xenc="http://www.w3.org/2001/04/xmlenc#"
+	elementFormDefault="qualified" attributeFormDefault="unqualified">
+
+	<!-- [KORR8] Pfade korrigiert -->
+	<xsd:import namespace="http://www.osci.de/2002/04/osci"
+		schemaLocation="PartialFetchDeliveryOldNS.xsd" />
+	<xsd:include schemaLocation="EFFI.xsd" />
+
+	<xsd:annotation>
+		<xsd:documentation xml:lang="de">
+			OSCI 2017- Partial-Zustellungsabholauftrag
+			Dateiname: PartialFetchDelivery.xsd
+		</xsd:documentation>
+	</xsd:annotation>
+
+	<!-- ### derived types ### -->
+	<xsd:complexType name="ChunkInformationType">
+		<xsd:complexContent>
+			<xsd:restriction
+				base="osci2017:ChunkInformationTemplate">
+				<xsd:attribute name="ChunkNumber" type="xsd:integer"
+					use="required" />
+				<xsd:attribute name="ChunkSize" type="xsd:integer"
+					use="required" />
+				<xsd:attribute name="ReceivedChunks" type="xsd:string"
+					use="required" />
+				<xsd:attribute name="TotalChunkNumbers"
+					type="xsd:integer" use="prohibited" />
+				<xsd:attribute name="TotalMessageSize"
+					type="xsd:integer" use="prohibited" />
+			</xsd:restriction>
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<xsd:complexType name="partialFetchDeliveryType">
+		<xsd:complexContent>
+			<xsd:extension base="osci:DefaultHeaderBlockTemplate">
+				<xsd:sequence>
+					<xsd:element ref="osci:SelectionRule" minOccurs="0" />
+					<xsd:element name="ChunkInformation"
+						type="osci2017:ChunkInformationType" />
+				</xsd:sequence>
+			</xsd:extension>
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<!-- ### global elements SOAP-Header ### -->
+	<xsd:element name="partialFetchDelivery"
+		type="osci2017:partialFetchDeliveryType" />
+
+	<!-- ### global elements SOAP-Body ### -->
+</xsd:schema>

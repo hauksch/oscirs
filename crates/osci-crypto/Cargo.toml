@@ -1,0 +1,13 @@
+[package]
+name = "osci-crypto"
+description = "OSCI-Transport 1.2 crypto SPI (Signer/Decrypter) and software implementation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64 = "0.23.1"
+rand = "0.8"
+rsa = { version = "0.9.10", features = ["sha2"] }
+thiserror = "2.0.21"

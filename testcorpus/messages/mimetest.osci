@@ -1,0 +1,29 @@
+
+MIME-Version: 1.0
+Content-Type: Multipart/Related; boundary=MIME_boundary; type=text/xml
+
+--MIME_boundary
+Content-Type: text/xml; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+Content-ID: <osci@message>
+
+<?xml version="1.0" encoding="UTF-8"?>
+
+<soap:Envelope xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://schemas.xmlsoap.org/soap/envelope/ soapResponseToMediateDelivery.xsd http://www.w3.org/2000/09/xmldsig# oscisig.xsd http://www.w3.org/2001/04/xmlenc# oscienc.xsd"><soap:Header><osci:ControlBlock xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Id="controlblock" soap:actor="http://schemas.xmlsoap.org/soap/actor/next" soap:mustUnderstand="1"></osci:ControlBlock><osci:responseToMediateDelivery xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Id="responsetomediatedelivery" soap:actor="http://schemas.xmlsoap.org/soap/actor/next" soap:mustUnderstand="1"><osci:Feedback></osci:Feedback></osci:responseToMediateDelivery><osci:StoredMessageGOV2_CE_PROCESSCARD xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Id="CE_PCB"><osci:ProcessCardBundle><osci:MessageId>bXNnSWQ=</osci:MessageId><osci:ProcessCard RecentModification="0"><osci:Creation><osci:Plain></osci:Plain></osci:Creation><osci:Subject>betreff</osci:Subject></osci:ProcessCard><osci:InspectionReport></osci:InspectionReport></osci:ProcessCardBundle></osci:StoredMessageGOV2_CE_PROCESSCARD></soap:Header><soap:Body xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Id="body"><osci:ContentPackage><osci:ContentContainer Id="first"><osci:Content><osci:Base64Content Id="content0">PHhtbD48S3VuZGVuTnVtbWVyPm1laW5lIEt1bmRlbi1OdW1tZXI8L0t1bmRlbk51bW1lcj48dGV4
+dD5oaWVyIG51biBkZXIgdGV4dDwvdGV4dD48L3htbD4=</osci:Base64Content></osci:Content><osci:Content Id="content1" href="cid:myAttachement"></osci:Content><osci:Content Id="content2" href="cid:my2Attachment"></osci:Content></osci:ContentContainer></osci:ContentPackage></soap:Body></soap:Envelope>
+--MIME_boundary
+Content-Type: application/octet-stream
+Content-Transfer-Encoding: base64
+Content-ID: <my2Attachment>
+Content-Length: 42
+
+PHhtbD48dGV4dD56d2VpdGVzIEF0dGFjaG1lbnQ8L3RleHQ+PC94bWw+
+--MIME_boundary
+Content-Type: application/octet-stream
+Content-Transfer-Encoding: base64
+Content-ID: <myAttachement>
+Content-Length: 89
+
+PHhtbD48S3VuZGVuTnVtbWVyPm1laW5lIEt1bmRlbi1OdW1tZXI8L0t1bmRlbk51bW1lcj48dGV4
+dD5oaWVyIG51biBkZXIgdGV4dDwvdGV4dD48L3htbD4=
+--MIME_boundary--

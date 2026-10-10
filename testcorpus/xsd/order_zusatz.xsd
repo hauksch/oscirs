@@ -1,0 +1,19 @@
+<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+	xmlns:osci128="http://xoev.de/transport/osci12/8"
+	targetNamespace="http://xoev.de/transport/osci12/8"
+	elementFormDefault="qualified" attributeFormDefault="unqualified">
+
+	<xsd:annotation>
+		<xsd:documentation xml:lang="de">
+			OSCI 1.2 Version 8 -
+			Definition der Laenge des Initialisierungsvektors fuer
+			AES-GCM in Byte
+		</xsd:documentation>
+	</xsd:annotation>
+
+	<xsd:element name="IvLength" type="osci128:IvLengthType" />
+	<xsd:complexType name="IvLengthType">
+		<xsd:attribute name="Value" type="xsd:positiveInteger"
+			use="required" />
+	</xsd:complexType>
+</xsd:schema>

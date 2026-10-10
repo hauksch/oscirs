@@ -1,0 +1,43 @@
+stages: [check, test, oracle]
+
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo-cache
+
+rust-check:
+  stage: check
+  image: rust:1-slim
+  before_script:
+    - rustup component add rustfmt clippy
+  script:
+    - cargo fmt --all --check
+    - cargo clippy --workspace --all-targets -- -D warnings
+  cache:
+    key: rust-check
+    paths: [.cargo-cache/registry, target/]
+
+rust-test:
+  stage: test
+  image: rust:1-slim
+  script:
+    - cargo test --workspace
+  cache:
+    key: rust-test
+    paths: [.cargo-cache/registry, target/]
+
+# Differential testing against the pinned Java reference (tag 2.6.1):
+# build the reference, extract the corpus, compile the oracle harness and
+# run the cross-verification spike suite. Needs network for cloning/Maven.
+oracle-test:
+  stage: oracle
+  image: rust:1-slim
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends openjdk-17-jdk-headless maven
+  script:
+    - ./scripts/fetch-reference.sh
+    - cd reference/osci-bib-java && mvn -B verify; cd ../..
+    - ./scripts/extract-testcorpus.sh
+    - ./scripts/build-oracle.sh
+    - OSCI_JAVA=/usr/bin/java cargo test -p osci-crypto --test spike_cross_verify
+  cache:
+    key: oracle-test
+    paths: [.cargo-cache/registry, target/, reference/]

@@ -1,0 +1,76 @@
+<xsd:schema targetNamespace="http://www.osci.de/2002/04/osci"
+	xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+	xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+	xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
+	xmlns:xenc="http://www.w3.org/2001/04/xmlenc#"
+	xmlns:osci="http://www.osci.de/2002/04/osci"
+	attributeFormDefault="unqualified" elementFormDefault="qualified">
+
+	<xsd:include schemaLocation="order.xsd" />
+
+	<xsd:annotation>
+		<xsd:documentation xml:lang="de">
+			OSCI 1.2 - MessageId-Anforderungsantwort
+			Dateiname: ResponseToGetMessageId.xsd
+		</xsd:documentation>
+	</xsd:annotation>
+
+	<!-- ### derived types ### -->
+
+	<xsd:complexType name="ControlBlockType">
+		<xsd:complexContent>
+			<xsd:restriction base="osci:ControlBlockTemplate">
+				<xsd:sequence>
+					<xsd:element name="Response" type="xsd:string"
+						minOccurs="1" />
+					<xsd:element name="Challenge" type="xsd:string"
+						minOccurs="0" />
+				</xsd:sequence>
+				<xsd:attribute name="ConversationId"
+					type="osci:Number" use="required" />
+				<xsd:attribute name="SequenceNumber"
+					type="osci:Number" use="required" />
+			</xsd:restriction>
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<xsd:complexType name="IntermediaryCertificatesType">
+		<xsd:complexContent>
+			<xsd:restriction
+				base="osci:IntermediaryCertificatesTemplate">
+				<xsd:sequence>
+					<xsd:element name="SignatureCertificateIntermediary"
+						type="osci:CertificateType" minOccurs="0" />
+				</xsd:sequence>
+			</xsd:restriction>
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<xsd:complexType name="responseToGetMessageIdType">
+		<xsd:complexContent>
+			<xsd:extension base="osci:DefaultBodyBlockTemplate">
+				<xsd:sequence>
+					<xsd:element name="Feedback" type="osci:FeedbackType" />
+					<xsd:element name="MessageId" type="osci:MessageIdType"
+						minOccurs="0" />
+				</xsd:sequence>
+			</xsd:extension>
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<!-- ### global types ### -->
+
+	<!-- ### global elements SOAP-Header ### -->
+
+	<xsd:element name="ControlBlock"
+		type="osci:ControlBlockType" />
+	<xsd:element name="SupplierSignature"
+		type="osci:SignatureBlockType" />
+	<xsd:element name="IntermediaryCertificates"
+		type="osci:IntermediaryCertificatesType" />
+
+	<!-- ### global elements SOAP-Body ### -->
+
+	<xsd:element name="responseToGetMessageId"
+		type="osci:responseToGetMessageIdType" />
+</xsd:schema>

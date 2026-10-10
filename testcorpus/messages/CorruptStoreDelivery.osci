@@ -1,0 +1,103 @@
+
+MIME-Version: 1.0
+Content-Type: Multipart/Related; boundary=MIME_boundary; type=text/xml
+
+--MIME_boundary
+Content-Type: text/xml; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+Content-ID: <osci@message>
+
+<?xml version="1.0" encoding="UTF-8"?>
+
+<soap:Envelope xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://schemas.xmlsoap.org/soap/envelope/ soapStoreDelivery.xsd http://www.w3.org/2000/09/xmldsig# oscisig.xsd http://www.w3.org/2001/04/xmlenc# oscienc.xsd"><soap:Header><osci:ControlBlock Id="controlblock" SequenceNumber="0" soap:actor="http://schemas.xmlsoap.org/soap/actor/next" soap:mustUnderstand="1"><osci:Challenge>ssyiCyRuueDF/Q==</osci:Challenge></osci:ControlBlock>
+<osci:DesiredLanguages Id="desiredlanguages" LanguagesList="de" soap:actor="http://schemas.xmlsoap.org/soap/actor/next" soap:mustUnderstand="1"></osci:DesiredLanguages><osci:QualityOfTimestamp Id="qualityoftimestamp_creation" Quality="plain" Service="creation" soap:actor="http://schemas.xmlsoap.org/soap/actor/next" soap:mustUnderstand="1"></osci:QualityOfTimestamp><osci:QualityOfTimestamp Id="qualityoftimestamp_reception" Quality="plain" Service="reception" soap:actor="http://schemas.xmlsoap.org/soap/actor/next" soap:mustUnderstand="1"></osci:QualityOfTimestamp><osci:storeDelivery Id="storedelivery" soap:actor="http://schemas.xmlsoap.org/soap/actor/next" soap:mustUnderstand="1"><osci:MessageId>MTA3NjU4MTg5NDA5OQ==</osci:MessageId><osci:Subject>Subject</osci:Subject></osci:storeDelivery><osci:NonIntermediaryCertificates Id="nonintermediarycertificates" soap:actor="http://www.w3.org/2001/12/soap-envelope/actor/none" soap:mustUnderstand="1"><osci:CipherCertificateOriginator Id="originator_cipher_issuer:_emailaddress=erv-nds@ulm-dsh.de,_ou=bu_ulm,_o=t-systems_gei_gmbh,_c=de,_cn=t-systems_bu_ulm_erv_mail_ca_serialno:_4"><ds:X509Data><ds:X509Certificate>MIIDWzCCAsSgAwIBAgIBBDANBgkqhkiG9w0BAQUFADCBhTElMCMGA1UEAxMcVC1TeXN0ZW1zIEJV
+IFVsbSBFUlYgTWFpbCBDQTELMAkGA1UEBhMCZGUxGzAZBgNVBAoTElQtU3lzdGVtcyBHRUkgR21i
+SDEPMA0GA1UECxMGQlUgVWxtMSEwHwYJKoZIhvcNAQkBFhJlcnYtbmRzQHVsbS1kc2guZGUwHhcN
+MDQwMjA1MTM1MjIyWhcNMDUwMjA0MTM1MjIyWjB2MRYwFAYDVQQDEw1PU0NJIFNlbmRlciAxMQsw
+CQYDVQQGEwJkZTEbMBkGA1UEChMSVC1TeXN0ZW1zIEdFSSBHbWJIMQ8wDQYDVQQLEwZCVSBVbG0x
+ITAfBgkqhkiG9w0BCQEWEmVydi1uZHNAdWxtLWRzaC5kZTCBnzANBgkqhkiG9w0BAQEFAAOBjQAw
+gYkCgYEAsWGNOLS7fLmBhB5KI/5UCN8Huntop/TZ1SVeLwQXNpFJvXjt1DMLJ4nPehzRVrKGCsBW
+UAqRh5ARseekXNUq/nM1cXjwg/Z0369V2FeCyE1LSLKDVKEEwqwrDwXhDjZruyBvhIUG2O6JD891
+Vus7sHxViDiC0wOSc40PE+3L+DUCAwEAAaOB6DCB5TAJBgNVHRMEAjAAMB0GA1UdDgQWBBQptMb3
+UU5IMz+WTV9SOM2LBpgU+TCBiQYDVR0jBIGBMH+AFArJK0CqtMy7eID6cBgmljnqIQSjoWSkYjBg
+MSMwIQYDVQQDExpULVN5c3RlbXMgQlUgVWxtIFJvb3QgQ0EgMTELMAkGA1UEBhMCZGUxGzAZBgNV
+BAoTElQtU3lzdGVtcyBHRUkgR21iSDEPMA0GA1UECxMGQlUgVWxtggECMA4GA1UdDwEB/wQEAwIF
+oDAdBgNVHREEFjAUgRJlcnYtbmRzQHVsbS1kc2guZGUwDQYJKoZIhvcNAQEFBQADgYEAcE8csanH
+iOjrzJFfuQ6mDQ3H1f/I/qgt8ZfL/IFuYtwIPLTTC/mB5EM9eMDona44EsmlYyzdh1t06fGEh/fc
+PmXFYfP+6BC8hcjdJqW99bp2VcciFvKe8GugbMs2sPmzPt78T//Goje3FyxvAR7OFDbdDhqzEq7g
+crDCefyrNUM=</ds:X509Certificate></ds:X509Data></osci:CipherCertificateOriginator><osci:CipherCertificateAddressee Id="addressee_cipher_issuer:_emailaddress=info@bos-bremen.de,_cn=bremen-online-services_ca,_o=bremen-online-services_ca,_c=de_serialno:_1298505010"><ds:X509Data><ds:X509Certificate>MIICmzCCAgSgAwIBAgIETWWdMjANBgkqhkiG9w0BAQUFADB4MQswCQYDVQQGEwJERTEiMCAGA1UE
+ChMZYnJlbWVuLW9ubGluZS1zZXJ2aWNlcyBDQTEiMCAGA1UEAxMZYnJlbWVuLW9ubGluZS1zZXJ2
+aWNlcyBDQTEhMB8GCSqGSIb3DQEJARYSaW5mb0Bib3MtYnJlbWVuLmRlMB4XDTAzMDQwMTA4MDIw
+NVoXDTA1MDQwMTA4MDIwNVowXjELMAkGA1UEBhMCREUxDDAKBgNVBAoTA2JvczELMAkGA1UECxMC
+QUUxEzARBgNVBAMTCkVtcGZhZW5nZXIxHzAdBgkqhkiG9w0BCQEWEHJsQGJvcy1icmVtZW4uZGUw
+gZ8wDQYJKoZIhvcNAQEBBQADgY0AMIGJAoGBALU4ILGuitIeITOvR6qfwQgOWSy2yNDymbSN1EVr
+wLTCykYjC8TmJzJFiOEOkOAdhQHuU+/f5VTWLMAu65Uc4FZkJjzWyJBK/q6Dd1k4hE+Yg3DH9CPz
+vUSi2oPBvMQfq7gY7BxM4wsKJC9JjIms7Qw/Iz0dQL48ElYBGTaknP+pAgMBAAGjTDBKMAsGA1Ud
+DwQEAwID+DAdBgNVHQ4EFgQUB0aV/DoRI+i+9Z+d6vApnNhnuTYwEQYJYIZIAYb4QgEBBAQDAgWg
+MAkGA1UdEwQCMAAwDQYJKoZIhvcNAQEFBQADgYEAibEr/JC8HNVYUr3eZCFUwOI7VQcdLRxPww+4
+JufCQ4E8dzV7Ni00GTovm5YQx0MWO6vW68mWBUtGf4eW5sZBZuy4l8xmtZEBy6osOh0ejyX7MnOU
+CL2ABm04flXy3CaxHV5qQNgWRUMRO0vsS3L06HVqVlvoDHA2KWNTsLO1KX0=</ds:X509Certificate></ds:X509Data></osci:CipherCertificateAddressee><osci:CipherCertificateOtherReader Id="reader0_cipher_issuer:_emailaddress=info@bos-bremen.de,_cn=bremen-online-services_ca,_o=bremen-online-services_ca,_c=de_serialno:_1298558257"><ds:X509Data><ds:X509Certificate>MIICmDCCAgGgAwIBAgIETWZtMTANBgkqhkiG9w0BAQUFADB4MQswCQYDVQQGEwJERTEiMCAGA1UE
+ChMZYnJlbWVuLW9ubGluZS1zZXJ2aWNlcyBDQTEiMCAGA1UEAxMZYnJlbWVuLW9ubGluZS1zZXJ2
+aWNlcyBDQTEhMB8GCSqGSIb3DQEJARYSaW5mb0Bib3MtYnJlbWVuLmRlMB4XDTAzMDQwMTA4MDI1
+OFoXDTA1MDQwMTA4MDI1OFowWzELMAkGA1UEBhMCREUxDDAKBgNVBAoTA2JvczELMAkGA1UECxMC
+QUUxEDAOBgNVBAMTB0xlc2VyIDExHzAdBgkqhkiG9w0BCQEWEHJsQGJvcy1icmVtZW4uZGUwgZ8w
+DQYJKoZIhvcNAQEBBQADgY0AMIGJAoGBALsqKk1p6S6NQ7tcY4QWkcZ+jG33/38gz3ExXcAXqL81
+7z7e+6oqeO+et+oQS+cM3F9Tjqz7I3dexWW6AO0/mzLyp/Jfb2OCy8bp+OrvvyzAwX6Y47P2uU+H
+1kiG4eBaijfqLHJn7s6dEMdabREa+FGwgVEP8/uqjQD7s7ZAHk71AgMBAAGjTDBKMAsGA1UdDwQE
+AwID+DAdBgNVHQ4EFgQUFNVx2F0XNxjeYbInZ8b81/Jv7/cwEQYJYIZIAYb4QgEBBAQDAgWgMAkG
+A1UdEwQCMAAwDQYJKoZIhvcNAQEFBQADgYEALOBwQf6uK1+0cq4x6jw9PB9lb16Tt/P+lO38hN7i
+MboeG5ZGg9Kbs7A4PlD2/yqP0DQwWBTOyBemSm3x9uERC2/+2c/z651Elri5xPnOg5i8WWlDFw8F
+QtjpkqH8rbphjKmmOPgsHBQxWuzQrjP77NEz7gzDI9/A+bNMKhXxGa4=</ds:X509Certificate></ds:X509Data></osci:CipherCertificateOtherReader><osci:SignatureCertificateOriginator Id="originator_signature_issuer:_emailaddress=erv-nds@ulm-dsh.de,_ou=bu_ulm,_o=t-systems_gei_gmbh,_c=de,_cn=t-systems_bu_ulm_erv_mail_ca_serialno:_4"><ds:X509Data><ds:X509Certificate>MIIDWzCCAsSgAwIBAgIBBDANBgkqhkiG9w0BAQUFADCBhTElMCMGA1UEAxMcVC1TeXN0ZW1zIEJV
+IFVsbSBFUlYgTWFpbCBDQTELMAkGA1UEBhMCZGUxGzAZBgNVBAoTElQtU3lzdGVtcyBHRUkgR21i
+SDEPMA0GA1UECxMGQlUgVWxtMSEwHwYJKoZIhvcNAQkBFhJlcnYtbmRzQHVsbS1kc2guZGUwHhcN
+MDQwMjA1MTM1MjIyWhcNMDUwMjA0MTM1MjIyWjB2MRYwFAYDVQQDEw1PU0NJIFNlbmRlciAxMQsw
+CQYDVQQGEwJkZTEbMBkGA1UEChMSVC1TeXN0ZW1zIEdFSSBHbWJIMQ8wDQYDVQQLEwZCVSBVbG0x
+ITAfBgkqhkiG9w0BCQEWEmVydi1uZHNAdWxtLWRzaC5kZTCBnzANBgkqhkiG9w0BAQEFAAOBjQAw
+gYkCgYEAsWGNOLS7fLmBhB5KI/5UCN8Huntop/TZ1SVeLwQXNpFJvXjt1DMLJ4nPehzRVrKGCsBW
+UAqRh5ARseekXNUq/nM1cXjwg/Z0369V2FeCyE1LSLKDVKEEwqwrDwXhDjZruyBvhIUG2O6JD891
+Vus7sHxViDiC0wOSc40PE+3L+DUCAwEAAaOB6DCB5TAJBgNVHRMEAjAAMB0GA1UdDgQWBBQptMb3
+UU5IMz+WTV9SOM2LBpgU+TCBiQYDVR0jBIGBMH+AFArJK0CqtMy7eID6cBgmljnqIQSjoWSkYjBg
+MSMwIQYDVQQDExpULVN5c3RlbXMgQlUgVWxtIFJvb3QgQ0EgMTELMAkGA1UEBhMCZGUxGzAZBgNV
+BAoTElQtU3lzdGVtcyBHRUkgR21iSDEPMA0GA1UECxMGQlUgVWxtggECMA4GA1UdDwEB/wQEAwIF
+oDAdBgNVHREEFjAUgRJlcnYtbmRzQHVsbS1kc2guZGUwDQYJKoZIhvcNAQEFBQADgYEAcE8csanH
+iOjrzJFfuQ6mDQ3H1f/I/qgt8ZfL/IFuYtwIPLTTC/mB5EM9eMDona44EsmlYyzdh1t06fGEh/fc
+PmXFYfP+6BC8hcjdJqW99bp2VcciFvKe8GugbMs2sPmzPt78T//Goje3FyxvAR7OFDbdDhqzEq7g
+crDCefyrNUM=</ds:X509Certificate></ds:X509Data></osci:SignatureCertificateOriginator></osci:NonIntermediaryCertificates></soap:Header><soap:Body Id="body"><osci:ContentPackage><osci:ContentContainer Id="contentcontainer0"><osci:Content Id="content0">QW55IGNvbnRlbnQgZGF0YS4=</osci:Content><osci:Content Id="content1">QW55IGNvbnRlbnQgZGF0YTIu</osci:Content><osci:Content Id="content2" href="cid:Atta"></osci:Content><osci:Content Id="content3" href="cid:atta"></osci:Content></osci:ContentContainer><xenc:EncryptedData xmlns="http://www.w3.org/2001/04/xmlenc#" Id="encdata_0" MimeType="text/xml"><xenc:EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc"></xenc:EncryptionMethod><ds:KeyInfo xmlns="http://www.w3.org/2000/09/xmldsig#"><xenc:EncryptedKey xmlns="http://www.w3.org/2001/04/xmlenc#" Id="EncData_encdata_0_0"><xenc:EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#rsa-1_5"></xenc:EncryptionMethod><ds:KeyInfo xmlns="http://www.w3.org/2000/09/xmldsig#"><ds:RetrievalMethod Type="http://www.w3.org/2000/09/xmldsig#X509Data" URI="reader0_cipher_issuer:_emailaddress=info@bos-bremen.de,_cn=bremen-online-services_ca,_o=bremen-online-services_ca,_c=de_serialno:_1298558257"></ds:RetrievalMethod></ds:KeyInfo><xenc:CipherData><xenc:CipherValue>C6Ouz12i4QHJ3JProvo09E7GStzimOjV+gtasqRKu30W3phAa/lwwXmh5IMXBnDERBaM5P8cb1yq
+TMDCs9Rq29BS+GbzV+ywXB3CxZOVxvF0SX86MrHW9S9CMXjbhh8tHkUsfW4ZUgdVX53C8gUu9KS1
+CM8X/p8HO89N/s2ZS4A=</xenc:CipherValue></xenc:CipherData></xenc:EncryptedKey></ds:KeyInfo><xenc:CipherData><xenc:CipherValue>/xx+7jtQbsAzL92MT1kfhRYbyg3BgDffbLYdsAAfThwCfsGtcV0MEdbOZrgj8hM2PNmidtjuMR5A
+sn67Jb4F3fkpo/VAfIar9/bDsiXBzXQv1eRCTeXoxb8OG1IHIVl6SgOmUrkIqYwdEPZAR1F5oQ==
+jFNJZGcoQf/A1oKGoCl+lF8s5a8QpXkvW+eec6RK4tGBSpBEnvJVlGi4f2w0rDKgdWrqQwXdscVQ
+3Dk4V9KwPj3UGPSWkzZ6J8TqIWw/tHQx7zd72Kr7lDJ4EDDStqpAj4p3Ugjlcnj0VYpSCzN/txAE
+FdUvJq0vGmggDV+MshewN/BceFd+eYn6UdOefIbiBFXOD574nQsnDPOEElYR261CLfwqFXz6oTfm
+99tRNc5EU3XTx8OXBjHbMyx2WL5bHxGmidko00UV6DJqN64A8uSlfik1v+vFZ101erW5OJz6Y35K
+aky4oc6KNYI//LRMFOzLQljkaGYezCeeTw2mIVAQ8pe2dBwl0SWrF5oqd65x9KOZi/PKTWUstqYp
+XMThniginqk/JniMBgZXwWqFlzwRBK4rKlypmIOysea3eIVsbN6bY2L4wYr5Br9fwph/+wpSrhu/
+65vrumoUlmBeo53KJNZlPi+nQezLjIQgpSFJNuuCg67LdqxhL+8Xp9Zfu0OBOV4LkzOLtPlSho1P
+ps6RnLaTSBrgs+iK2EqdD0yBeBJaSzokbVBm79O0B2yy5AYi3hScquk0KbOhDbISH5R2rUpkzjFI
+Jj+/umsaGLVJURlq07WYi04Zjrmc/L2yxttV+owy3m8XdnSdGe5yhHol9J4AkBAzl9nBRicI3SFC
+c7m9zaCKCFHC7Hj8FEjuxGTHw3wyVySH3S3otPrtzwR41f1DZfrmDHgvvRgbiwxkvgiyq31jfTpN
+JrTJhNXYndp/CUIDTpUhDPLNQX4wm3HhnSWZf/ioTf2oi0slINgy0dSIPvbccH215h98PmAjcd45
+1oRelPhCWqKTJCWWqMALqkzU/B3Vbofsw9TBu6VnsHm/tYVy1mjHXfyjxNG/PNzv/zNQwTyC2pXF
+h1aWOA==</xenc:CipherValue></xenc:CipherData></xenc:EncryptedData></osci:ContentPackage></soap:Body></soap:Envelope>
+--MIME_boundary
+Content-Type: binary; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+Content-ID: <cid:AttaEnc>
+Content-Length: 56
+
+a+2dOe8QN1aLwLsEK4SUsOdWzB5H4Xij9ANTZuniJfw=TVnL3wkZhWE=
+--MIME_boundary
+Content-Type: binary; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+Content-ID: <cid:Atta>
+Content-Length: 44
+
+QW55IHVuZW5jcnlwdGVkIGF0dGFjaG1lbnQgZGF0YS4=
+--MIME_boundary
+Content-Type: binary; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+Content-ID: <cid:atta>
+Content-Length: 36
+
+amF2YSAtamFyIHZibmJzYWcuamFyICUxDQo=
+--MIME_boundary--

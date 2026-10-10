@@ -1,0 +1,479 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--Schema for OSCI Message Meta Data - last edited 2015-02-19 -->
+<!-- Change 2015-02-19: MessageType amended by mandatory attribte @payloadSchema -->
+<!-- Change 2015-01-23: Alignment with XTA/KoSIT: introduced KeyCodeType, 
+	changed PropertyType, BusinessScenarioType, MessageType; ServiceQuality (to 
+	#any type), SecurityToken may carry IDREF attribute to token in payload now; 
+	usage attribute mandatory now -->
+<!-- Change 2014-11-30: xoev basis data type schema version changed from 
+	1_0 to 1_1 -->
+<!-- Last recent changes: Codelist for BusinessScenarioTypes defined and 
+	imported -->
+<!-- Changes: 2.0.2: Adoption of xoev:Codelist type for some elements; eliminating 
+	QName typed attributes/elements; PartyType elements now may include optional 
+	SecurityTokens (as e.g. used in XVergabe) -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+	xmlns:oscimeta="http://www.osci.eu/ws/2014/10/transport" xmlns:wsa="http://www.w3.org/2005/08/addressing"
+	xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd"
+	xmlns:xoev-dt="http://xoev.de/schemata/basisdatentypen/1_1"
+	targetNamespace="http://www.osci.eu/ws/2014/10/transport"
+	elementFormDefault="qualified" attributeFormDefault="unqualified">
+	<xs:import namespace="http://www.w3.org/2005/08/addressing"
+		schemaLocation="ws-addr.xsd" />
+	<xs:import
+		namespace="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd"
+		schemaLocation="oasis-200401-wss-wssecurity-secext-1.0.xsd" />
+	<xs:import namespace="http://xoev.de/schemata/basisdatentypen/1_1"
+		schemaLocation="xoev-basisdatentypen.xsd" />
+	<xs:simpleType name="NonEmptyStringType">
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1" />
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="NonEmptyURIType">
+		<xs:restriction base="xs:anyURI">
+			<xs:minLength value="1" />
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:complexType name="AnyType" mixed="true">
+		<xs:sequence minOccurs="0" maxOccurs="unbounded">
+			<xs:any namespace="##any" processContents="lax" />
+		</xs:sequence>
+		<xs:anyAttribute namespace="##any" />
+	</xs:complexType>
+	<!-- End AnyType -->
+	<xs:complexType name="ReceiptRequestType">
+		<xs:sequence>
+			<xs:element name="Submission" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Sending node: Message accepted for delivery and
+						submitted
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="Relay" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Active node on the delivery route: Message
+						forwarded to next hop
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="Delivery" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Destination node:Successful delivery to Recipient
+						in synchronous scenarios, to MsgBox if asynchronous
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="Fetch" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Only MsgBox node: Initial fetch of Message by
+						Recipient from his MsgBox
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="Reception" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Ultimate Recipient node, after acceptance of
+						message, after successful decryption of payload
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="ReceiptTo" type="wsa:EndpointReferenceType"
+				minOccurs="0" />
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="DeliveryAttributesType">
+		<xs:annotation>
+			<xs:documentation>Message delivery time instants, quality and
+				receipts requested
+			</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:annotation>
+				<xs:documentation>Timestamps, priority etc.</xs:documentation>
+			</xs:annotation>
+			<xs:element name="Origin" type="xs:dateTime" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Production of content by Requester respective
+						(response) Provider
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="InitialSend" type="xs:dateTime"
+				minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Time when delivery was started (submission by
+						Senders node)
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="NotBefore" type="xs:dateTime" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Time when sending node should submit message
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="ObsoleteAfter" type="xs:date" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Date, when this message is obsolete; may be set
+						by Initiator
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="Delivery" type="xs:dateTime" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Time of entry in a Recipients MsgBox or reception
+						by Recipient in synchronous case
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="InitialFetch" type="xs:dateTime"
+				minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Time of first comitted fetch from MsgBox by
+						recipient
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="Reception" type="xs:dateTime" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Reception time set by the Ultimate Recipient
+						("Reader", target application)
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="ServiceQuality" type="oscimeta:NonEmptyStringType"
+				minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Property like priority etc. - XTA here points to
+						"Service Profile"
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="ReceiptRequests" type="oscimeta:ReceiptRequestType"
+				minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Receipts requested by sender or author
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:element name="SecurityToken">
+		<xs:complexType>
+			<xs:choice>
+				<xs:element ref="wsse:BinarySecurityToken" />
+				<xs:element ref="wsse:SecurityTokenReference" />
+				<xs:element ref="wsse:UsernameToken" />
+			</xs:choice>
+			<xs:attribute name="usage" use="required">
+				<xs:simpleType>
+					<xs:restriction base="xs:NMTOKEN">
+						<xs:enumeration value="AUTHENTICATION" />
+						<xs:enumeration value="ENCRYPTION" />
+						<xs:enumeration value="SIGNATURE" />
+					</xs:restriction>
+				</xs:simpleType>
+			</xs:attribute>
+			<xs:attribute name="payloadRef" type="xs:IDREF" />
+		</xs:complexType>
+	</xs:element>
+	<xs:complexType name="PartyType">
+		<xs:annotation>
+			<xs:documentation>Logical identifier and optional security tokens of
+				that entity (binary, may carry SAML, too)
+			</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="Identifier" type="oscimeta:PartyIdentifierType" />
+			<xs:element ref="oscimeta:SecurityToken" minOccurs="0"
+				maxOccurs="unbounded" />
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="PartyIdentifierType">
+		<xs:annotation>
+			<xs:documentation>Value of generic party identifier, as classified by
+				@type attribute, e.g.: Prefix:Kennung
+			</xs:documentation>
+		</xs:annotation>
+		<xs:simpleContent>
+			<xs:extension base="xs:normalizedString">
+				<xs:attribute name="type" type="oscimeta:NonEmptyStringType"
+					use="required">
+					<xs:annotation>
+						<xs:documentation>Orientation: ebMS Core: type, how to interpret
+							Party-Id value, e.g.: xöv oder Justiz
+						</xs:documentation>
+					</xs:annotation>
+				</xs:attribute>
+				<xs:attribute name="name" type="oscimeta:NonEmptyStringType">
+					<xs:annotation>
+						<xs:documentation>optional "friendly name" value for displaying in
+							user agents (as e.g. known from eMail)
+						</xs:documentation>
+					</xs:annotation>
+				</xs:attribute>
+				<xs:attribute name="category" type="oscimeta:NonEmptyStringType">
+					<xs:annotation>
+						<xs:documentation>Concrete role of party in business scenario
+							(e.g. "buyer", "Meldehörde", "Standesamt"...)
+						</xs:documentation>
+					</xs:annotation>
+				</xs:attribute>
+			</xs:extension>
+		</xs:simpleContent>
+	</xs:complexType>
+	<xs:element name="Author" type="oscimeta:PartyType">
+		<xs:annotation>
+			<xs:documentation>Requester resp. (response-) Provider
+			</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:element name="Reader" type="oscimeta:PartyType">
+		<xs:annotation>
+			<xs:documentation>Destinations of the message</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:complexType name="OriginatorsType">
+		<xs:sequence>
+			<xs:element ref="oscimeta:Author" />
+			<xs:element ref="oscimeta:Sender" minOccurs="0" />
+			<xs:element name="ReplyTo" type="oscimeta:PartyType"
+				minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>If response expected different from value
+						outlined in "From" address
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="DestinationsType">
+		<xs:sequence>
+			<xs:element ref="oscimeta:Reader">
+				<xs:annotation>
+					<xs:documentation>Ultimate target of the message</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element ref="oscimeta:OtherDestinations" minOccurs="0" />
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="ProcessIdentifierType">
+		<xs:annotation>
+			<xs:documentation>Process ID message is realated to
+			</xs:documentation>
+		</xs:annotation>
+		<xs:simpleContent>
+			<xs:extension base="oscimeta:NonEmptyStringType">
+				<xs:attribute name="ProccesName" type="oscimeta:NonEmptyStringType">
+					<xs:annotation>
+						<xs:documentation>Process may have a name, e.g. "order"
+						</xs:documentation>
+					</xs:annotation>
+				</xs:attribute>
+			</xs:extension>
+		</xs:simpleContent>
+	</xs:complexType>
+	<xs:complexType name="MsgIdentificationType">
+		<xs:sequence>
+			<xs:element ref="wsa:MessageID" />
+			<xs:element name="In-Reply-To" type="wsa:AttributedURIType"
+				minOccurs="0" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Referenced application level Message-Id(s)
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="ProcessRef" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>References to business process-id's (like ebMS
+						Conversation-Id, "Aktenzeichen" in Germany)
+					</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="Requester" type="oscimeta:ProcessIdentifierType"
+							minOccurs="0">
+							<xs:annotation>
+								<xs:documentation>Ref on requester (Source Application) side
+								</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+						<xs:element name="Responder" type="oscimeta:ProcessIdentifierType"
+							minOccurs="0">
+							<xs:annotation>
+								<xs:documentation>Ref on responder (Target Application) side, if
+									different
+								</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="KeyCodeType">
+		<xs:complexContent>
+			<xs:restriction base="xoev-dt:Code">
+				<xs:sequence>
+					<xs:element name="code" type="xs:token" form="unqualified" />
+					<xs:element name="name" type="xs:normalizedString" form="unqualified"
+						minOccurs="0" />
+				</xs:sequence>
+				<xs:attribute name="listURI" type="xs:anyURI" use="required" />
+				<xs:attribute name="listVersionID" type="xs:normalizedString"
+					use="required" />
+			</xs:restriction>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="PropertyType">
+		<xs:sequence>
+			<xs:element name="Key" type="oscimeta:KeyCodeType" />
+			<xs:element name="Value" type="oscimeta:NonEmptyStringType" />
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="MessagePropertiesType">
+		<xs:sequence>
+			<xs:element name="Property" type="oscimeta:PropertyType"
+				maxOccurs="unbounded" />
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="QualifierType">
+		<xs:sequence>
+			<xs:element name="Subject" type="xs:string" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Message subject text (informational)
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="Service" type="xs:anyURI">
+				<xs:annotation>
+					<xs:documentation>Distinct service in a certain business scenario
+						context; in the XÖV context this is the "Dienste URI"
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="BusinessScenario">
+				<xs:annotation>
+					<xs:documentation>Domain qualifier, e.g. Meldewesen, XVergabe...
+					</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:choice>
+						<xs:element name="Defined" type="oscimeta:KeyCodeType" />
+						<xs:element name="Undefined" type="xs:normalizedString" />
+					</xs:choice>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="MessageType">
+				<xs:annotation>
+					<xs:documentation>Payload: Type of document or message.
+						MessageTypes normally bound to specific BusinessScenario
+					</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:complexContent>
+						<xs:extension base="oscimeta:KeyCodeType">
+							<xs:attribute name="payloadSchema" type="oscimeta:NonEmptyURIType"
+								use="required" />
+						</xs:extension>
+					</xs:complexContent>
+				</xs:complexType>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:element name="DeliveryAttributes" type="oscimeta:DeliveryAttributesType">
+		<xs:annotation>
+			<xs:documentation>Time stamps, receipts to be generated, service
+				quality
+			</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:element name="Originators" type="oscimeta:OriginatorsType">
+		<xs:annotation>
+			<xs:documentation>Message originators and reply address
+			</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:element name="Destinations" type="oscimeta:DestinationsType">
+		<xs:annotation>
+			<xs:documentation>Actual and other destinations of Message
+			</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:element name="MsgIdentification" type="oscimeta:MsgIdentificationType">
+		<xs:annotation>
+			<xs:documentation>Message ID and Message relations</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:element name="Qualifier" type="oscimeta:QualifierType">
+		<xs:annotation>
+			<xs:documentation>General payload properties, common to all scenarios
+			</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:element name="MessageProperties">
+		<xs:annotation>
+			<xs:documentation>Scenarios specific payload properties, to be agreed
+				upon per scenario
+			</xs:documentation>
+		</xs:annotation>
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="Property" type="oscimeta:PropertyType"
+					maxOccurs="unbounded" />
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="Sender" type="oscimeta:PartyType">
+		<xs:annotation>
+			<xs:documentation>Sending node, entry may be added by Sender node
+			</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:element name="OtherDestinations">
+		<xs:annotation>
+			<xs:documentation>Other destinations of message - informational, as
+				known from e-mail
+			</xs:documentation>
+		</xs:annotation>
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element ref="oscimeta:OtherReaders" maxOccurs="unbounded" />
+				<xs:element ref="oscimeta:CcReaders" minOccurs="0"
+					maxOccurs="unbounded" />
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="OtherReaders" type="oscimeta:PartyIdentifierType" />
+	<xs:element name="CcReaders" type="oscimeta:PartyIdentifierType">
+		<xs:annotation>
+			<xs:documentation>Destinations in cc role</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:element name="MessageMetaData">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element ref="oscimeta:DeliveryAttributes" />
+				<xs:element ref="oscimeta:Originators" />
+				<xs:element ref="oscimeta:Destinations" />
+				<xs:element ref="oscimeta:MsgIdentification" />
+				<xs:element ref="oscimeta:Qualifier" />
+				<xs:element ref="oscimeta:MessageProperties" minOccurs="0" />
+				<xs:element name="MsgSize" type="xs:positiveInteger"
+					minOccurs="0">
+					<xs:annotation>
+						<xs:documentation>Message size in bytes</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+			</xs:sequence>
+			<xs:attribute name="TestMsg" type="xs:boolean" default="false">
+				<xs:annotation>
+					<xs:documentation>"true", if test-message; defaults to "false"
+					</xs:documentation>
+				</xs:annotation>
+			</xs:attribute>
+		</xs:complexType>
+	</xs:element>
+</xs:schema>

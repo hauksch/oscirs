@@ -1,0 +1,44 @@
+<xsd:schema
+	targetNamespace="http://schemas.xmlsoap.org/soap/envelope/"
+	xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+	xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+	xmlns:osci="http://www.osci.de/2002/04/osci"
+	xmlns:xenc="http://www.w3.org/2001/04/xmlenc#"
+	attributeFormDefault="unqualified" elementFormDefault="qualified">
+
+	<xsd:annotation>
+		<xsd:documentation xml:lang="de">
+			OSCI 1.2 - Fehlernachricht SOAP-Envelope
+			Dateiname: soapMessageFault.xsd
+		</xsd:documentation>
+	</xsd:annotation>
+
+	<!-- ### restrictions ### -->
+
+	<xsd:redefine
+		schemaLocation="http://schemas.xmlsoap.org/soap/envelope/">
+
+		<!-- ### Envelope, Header und Body ### -->
+
+		<xsd:complexType name="Envelope">
+			<xsd:complexContent>
+				<xsd:restriction base="soap:Envelope">
+					<xsd:sequence>
+						<xsd:element ref="soap:Body" minOccurs="1" />
+					</xsd:sequence>
+				</xsd:restriction>
+			</xsd:complexContent>
+		</xsd:complexType>
+
+		<xsd:complexType name="Body">
+			<xsd:complexContent>
+				<xsd:restriction base="soap:Body">
+					<xsd:choice>
+						<xsd:element name="Fault" type="soap:Fault" />
+					</xsd:choice>
+				</xsd:restriction>
+			</xsd:complexContent>
+		</xsd:complexType>
+
+	</xsd:redefine>
+</xsd:schema>

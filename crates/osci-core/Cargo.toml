@@ -1,0 +1,9 @@
+[package]
+name = "osci-core"
+description = "OSCI-Transport 1.2 message model, SOAP/XML codec, MIME and helper layer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]

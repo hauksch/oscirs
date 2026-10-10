@@ -1,0 +1,60 @@
+
+MIME-Version: 1.0
+Content-Type: Multipart/Related; boundary=MIME_boundary; type=text/xml
+
+--MIME_boundary
+Content-Type: text/xml; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+Content-ID: <osci@message>
+
+<?xml version="1.0" encoding="UTF-8"?>
+
+<soap:Envelope xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://schemas.xmlsoap.org/soap/envelope/ soapResponseToAcceptDelivery.xsd http://www.w3.org/2000/09/xmldsig# oscisig.xsd http://www.w3.org/2001/04/xmlenc# oscienc.xsd"><soap:Header><osci:ControlBlock xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Id="controlblock" soap:actor="http://schemas.xmlsoap.org/soap/actor/next" soap:mustUnderstand="1"><osci:Response>vh2OVOPShTQxiA==</osci:Response></osci:ControlBlock><osci:SupplierSignature Id="suppliersignature" soap:actor="http://schemas.xmlsoap.org/soap/actor/next" soap:mustUnderstand="1"><ds:Signature><ds:SignedInfo>
+<ds:CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></ds:CanonicalizationMethod>
+<ds:SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"></ds:SignatureMethod>
+<ds:Reference URI="#controlblock">
+<ds:Transforms>
+<ds:Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></ds:Transform>
+</ds:Transforms>
+<ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></ds:DigestMethod>
+<ds:DigestValue>aNI1Eh0i5PTAZdMzb0SC0u+g7BM=</ds:DigestValue>
+</ds:Reference>
+<ds:Reference URI="#responsetoacceptdelivery">
+<ds:Transforms>
+<ds:Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></ds:Transform>
+</ds:Transforms>
+<ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></ds:DigestMethod>
+<ds:DigestValue>4DuzoPXamWclXqaTEZhaQhoS0nk=</ds:DigestValue>
+</ds:Reference>
+<ds:Reference URI="#nonintermediarycertificates">
+<ds:Transforms>
+<ds:Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></ds:Transform>
+</ds:Transforms>
+<ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></ds:DigestMethod>
+<ds:DigestValue>ZhajXLll8mxexlOl+G6k/pPffFU=</ds:DigestValue>
+</ds:Reference>
+<ds:Reference URI="#body">
+<ds:Transforms>
+<ds:Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></ds:Transform>
+</ds:Transforms>
+<ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></ds:DigestMethod>
+<ds:DigestValue>krLzUC0/8qmPr2YHEchmu4DdL8c=</ds:DigestValue>
+</ds:Reference>
+</ds:SignedInfo><ds:SignatureValue>Y8enqO5wCUtpSu5ua8OYgXVSzB2AozAFuKy2TYzRre2lUHpWFBmlPgl5vVlFm8kHmIA7I80nTkn3
+zbVRpgU4Hd7Rng9HNPW3CwVuNFzg3P9+uK8WYPFhf4X5BoF2OX8WiaWttncVEgbbX4yx7Qvu7tQL
+SCm4McAHbAQFHdI/Mos=</ds:SignatureValue><ds:KeyInfo><ds:RetrievalMethod URI="#addressee_signature_2bd128eef52b6557137d2db61e13ffa0a1c3d325"></ds:RetrievalMethod></ds:KeyInfo></ds:Signature></osci:SupplierSignature>
+<osci:responseToAcceptDelivery xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Id="responsetoacceptdelivery" soap:actor="http://schemas.xmlsoap.org/soap/actor/next" soap:mustUnderstand="1"><osci:Feedback><osci:Entry xml:lang="de"><osci:Code>0800</osci:Code><osci:Text>Auftrag ausgeführt, Dialog beendet</osci:Text></osci:Entry></osci:Feedback></osci:responseToAcceptDelivery>
+<osci:NonIntermediaryCertificates xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Id="nonintermediarycertificates" soap:actor="http://www.w3.org/2001/12/soap-envelope/actor/none" soap:mustUnderstand="1"><osci:SignatureCertificateAddressee Id="addressee_signature_2bd128eef52b6557137d2db61e13ffa0a1c3d325"><ds:X509Data><ds:X509Certificate>MIIC2zCCAkSgAwIBAgIE7Qmi4TANBgkqhkiG9w0BAQUFADCBpzELMAkGA1UEBhMCZGUxIzAhBgNV
+BAoTGiBicmVtZW4tb25saW5lLXNlcnZpY2VzIENBMSowKAYDVQQLEyFicmVtZW4tb25saW5lLXNl
+cnZpY2VzIENBIFRlY2huaWsxJDAiBgNVBAMTG2JyZW1lbi1vbmxpbmUtc2VydmljZXMgQ0EgMjEh
+MB8GCSqGSIb3DQEJARYSaW5mb0Bib3MtYnJlbWVuLmRlMB4XDTA0MDkxMDEwMjg0NFoXDTA2MDkx
+MDEwMjg0NFowbjELMAkGA1UEBhMCREUxDDAKBgNVBAoTA2JvczELMAkGA1UECxMCUEUxJjAkBgNV
+BAMTHVRlc3QgWmVydGlmaWthdCBWUFMgQmFja2VuZCAxMRwwGgYJKoZIhvcNAQkBFg1ib3NAYnJl
+bWVuLmRlMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCr7jndN2t7qFG5x6H7K0qAV6yhHYqA
+PxIjsazBSafSdhlc8DPfNt0BvYRjVtpze12i/V9TslP0ndanEaS7alH00Lse3BV20nncZcrKLW7g
+EFIS5qbLOIOjLKw8lcbugAHIZlSSJpWXE7tXKD7Pwnpcwa+53QovtkI3vpHGHEnOcQIDAQABo0ww
+SjALBgNVHQ8EBAMCA/gwHQYDVR0OBBYEFPG7iqVMjvqnDSUHJC8ODdTwdNAtMBEGCWCGSAGG+EIB
+AQQEAwIFoDAJBgNVHRMEAjAAMA0GCSqGSIb3DQEBBQUAA4GBAIl/l11LK4Ax25V7DRA4LYtJ0AvD
+WgipC9DSNFGo2Z0Gh/0srPPVe90taD4Bk91P8TUMeWJqJTHGnEfBcsAoxwRzDttVELWM5PRDfZxs
+00AWyPy6zTP1TWuNWIctwbMaTKyBQW+KpnDLtI7EbRVR3saKwy7KR8UBqysXroxK4MMR</ds:X509Certificate></ds:X509Data></osci:SignatureCertificateAddressee></osci:NonIntermediaryCertificates></soap:Header><soap:Body xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Id="body"></soap:Body></soap:Envelope>
+--MIME_boundary--

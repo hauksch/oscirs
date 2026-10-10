@@ -1,0 +1,92 @@
+<xsd:schema targetNamespace="http://www.osci.de/2002/04/osci"
+	xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+	xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+	xmlns:osci="http://www.osci.de/2002/04/osci"
+	xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
+	xmlns:xenc="http://www.w3.org/2001/04/xmlenc#"
+	attributeFormDefault="unqualified" elementFormDefault="qualified">
+
+	<xsd:include schemaLocation="order.xsd" />
+
+	<xsd:annotation>
+		<xsd:documentation xml:lang="de">
+			OSCI 1.2 - Zustellungsauftrag
+			Dateiname: StoreDelivery.xsd
+		</xsd:documentation>
+	</xsd:annotation>
+
+	<!-- ### derived types ### -->
+
+	<xsd:complexType name="ControlBlockType">
+		<xsd:complexContent>
+			<xsd:restriction base="osci:ControlBlockTemplate">
+				<xsd:sequence>
+					<xsd:element name="Response" type="xsd:string"
+						minOccurs="0" />
+					<xsd:element name="Challenge" type="xsd:string"
+						minOccurs="1" />
+				</xsd:sequence>
+				<xsd:attribute name="ConversationId"
+					type="osci:Number" use="optional" />
+				<xsd:attribute name="SequenceNumber"
+					type="osci:Number" use="required" />
+			</xsd:restriction>
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<xsd:complexType name="storeDeliveryType">
+		<xsd:complexContent>
+			<xsd:extension base="osci:DefaultHeaderBlockTemplate">
+				<xsd:sequence>
+					<xsd:element name="MessageId" type="osci:MessageIdType" />
+					<xsd:element name="Subject" type="xsd:string"
+						minOccurs="0" />
+				</xsd:sequence>
+			</xsd:extension>
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<xsd:complexType name="NonIntermediaryCertificatesType">
+		<xsd:complexContent>
+			<xsd:restriction
+				base="osci:NonIntermediaryCertificatesTemplate">
+				<xsd:sequence>
+					<xsd:element name="CipherCertificateOriginator"
+						type="osci:CertificateType" minOccurs="0" />
+					<xsd:element name="CipherCertificateOtherAuthor"
+						type="osci:CertificateType" minOccurs="0" maxOccurs="unbounded" />
+					<xsd:element name="CipherCertificateAddressee"
+						type="osci:CertificateType" minOccurs="1" />
+					<xsd:element name="CipherCertificateOtherReader"
+						type="osci:CertificateType" minOccurs="0" maxOccurs="unbounded" />
+					<xsd:element name="SignatureCertificateOriginator"
+						type="osci:CertificateType" minOccurs="0" />
+					<xsd:element name="SignatureCertificateOtherAuthor"
+						type="osci:CertificateType" minOccurs="0" maxOccurs="unbounded" />
+				</xsd:sequence>
+			</xsd:restriction>
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<!-- ### global types ### -->
+
+	<!-- ### global elements SOAP-Header ### -->
+
+	<xsd:element name="ControlBlock"
+		type="osci:ControlBlockType" />
+	<xsd:element name="ClientSignature"
+		type="osci:SignatureBlockType" />
+	<xsd:element name="DesiredLanguages"
+		type="osci:DesiredLanguagesType" />
+	<xsd:element name="QualityOfTimestamp"
+		type="osci:QualityOfTimestampType" />
+	<xsd:element name="storeDelivery"
+		type="osci:storeDeliveryType" />
+	<xsd:element name="NonIntermediaryCertificates"
+		type="osci:NonIntermediaryCertificatesType" />
+
+	<!-- ### global elements SOAP-Body ### -->
+
+	<xsd:element name="ContentPackage"
+		type="osci:ContentPackageType" />
+</xsd:schema>

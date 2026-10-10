@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+	xmlns:xoev-dt="http://xoev.de/schemata/basisdatentypen/1_1"
+	targetNamespace="http://xoev.de/schemata/basisdatentypen/1_1" version="1.1"
+	elementFormDefault="qualified" attributeFormDefault="unqualified">
+	<xs:complexType name="Code">
+		<xs:annotation>
+			<xs:appinfo>
+				<title>Datentyp für die Übermittlung von Codes</title>
+			</xs:appinfo>
+			<xs:documentation>Datentyp für die Übermittlung von Codes (vgl.
+				XÖV-Handbuch).
+			</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="code" type="xs:token" form="unqualified" />
+			<xs:element name="name" minOccurs="0" type="xs:normalizedString"
+				form="unqualified" />
+		</xs:sequence>
+		<xs:attribute name="listURI" type="xs:anyURI" use="optional" />
+		<xs:attribute name="listVersionID" type="xs:normalizedString"
+			use="optional" />
+	</xs:complexType>
+</xs:schema>
+

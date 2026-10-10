@@ -1,0 +1,186 @@
+<xsd:schema
+	targetNamespace="http://www.w3.org/2000/09/xmldsig#"
+	xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+	xmlns:xenc="http://www.w3.org/2001/04/xmlenc#"
+	xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
+	elementFormDefault="qualified">
+
+	<xsd:import namespace="http://www.w3.org/2001/04/xmlenc#"
+		schemaLocation="oscienc.xsd" />
+
+	<xsd:annotation>
+		<xsd:documentation xml:lang="de">
+			OSCI 1.2 - Einschraenkung von XML-Signature Auftragsebene
+			Dateiname: oscisig.xsd
+		</xsd:documentation>
+	</xsd:annotation>
+
+	<!-- ### redefinitions ### -->
+	<xsd:redefine
+		schemaLocation="http://www.w3.org/TR/2001/CR-xmldsig-core-20010419/xmldsig-core-schema.xsd">
+		<xsd:complexType name="KeyInfoType">
+			<xsd:complexContent>
+				<xsd:restriction base="ds:KeyInfoType">
+					<xsd:choice>
+						<xsd:element ref="xenc:EncryptedKey" />
+						<xsd:element ref="ds:RetrievalMethod" />
+						<xsd:element ref="ds:X509Data" />
+					</xsd:choice>
+					<xsd:attribute name="Id" type="xsd:ID" use="optional" />
+				</xsd:restriction>
+			</xsd:complexContent>
+		</xsd:complexType>
+
+		<xsd:complexType name="ReferenceType">
+			<xsd:complexContent>
+				<xsd:restriction base="ds:ReferenceType">
+					<xsd:sequence>
+						<!-- [KORR8] minOccurs="0" eingefuegt -->
+						<xsd:element ref="ds:Transforms" minOccurs="0" />
+						<xsd:element ref="ds:DigestMethod" />
+						<xsd:element ref="ds:DigestValue" />
+					</xsd:sequence>
+					<xsd:attribute name="URI" type="xsd:anyURI"
+						use="optional" />
+				</xsd:restriction>
+			</xsd:complexContent>
+		</xsd:complexType>
+
+		<xsd:complexType name="SignatureType">
+			<xsd:complexContent>
+				<xsd:restriction base="ds:SignatureType">
+					<xsd:sequence>
+						<xsd:element ref="ds:SignedInfo" />
+						<xsd:element ref="ds:SignatureValue" />
+						<xsd:element ref="ds:KeyInfo" />
+						<xsd:element ref="ds:Object" minOccurs="0"
+							maxOccurs="unbounded" />
+					</xsd:sequence>
+				</xsd:restriction>
+			</xsd:complexContent>
+		</xsd:complexType>
+
+		<xsd:complexType name="SignatureValueType">
+			<xsd:simpleContent>
+				<xsd:restriction base="ds:SignatureValueType">
+					<xsd:attribute name="Id" type="xsd:ID" use="optional" />
+				</xsd:restriction>
+			</xsd:simpleContent>
+		</xsd:complexType>
+
+		<xsd:complexType name="RetrievalMethodType">
+			<xsd:complexContent>
+				<xsd:restriction base="ds:RetrievalMethodType">
+					<xsd:attribute name="URI" type="xsd:anyURI"
+						use="required" />
+					<xsd:attribute name="Type">
+						<xsd:simpleType>
+							<xsd:restriction base="xsd:anyURI">
+								<xsd:enumeration
+									value="http://www.w3.org/2000/09/xmldsig#X509Data" />
+							</xsd:restriction>
+						</xsd:simpleType>
+					</xsd:attribute>
+				</xsd:restriction>
+			</xsd:complexContent>
+		</xsd:complexType>
+
+		<xsd:complexType name="X509DataType">
+			<xsd:complexContent>
+				<xsd:restriction base="ds:X509DataType">
+					<xsd:sequence maxOccurs="1">
+						<xsd:element name="X509Certificate"
+							type="xsd:base64Binary" />
+					</xsd:sequence>
+				</xsd:restriction>
+			</xsd:complexContent>
+		</xsd:complexType>
+
+		<xsd:complexType name="CanonicalizationMethodType">
+			<xsd:complexContent>
+				<xsd:restriction
+					base="ds:CanonicalizationMethodType">
+					<xsd:attribute name="Algorithm" use="required">
+						<xsd:simpleType>
+							<xsd:restriction base="xsd:anyURI">
+								<xsd:enumeration
+									value="http://www.w3.org/TR/2001/REC-xml-c14n-20010315" />
+							</xsd:restriction>
+						</xsd:simpleType>
+					</xsd:attribute>
+				</xsd:restriction>
+			</xsd:complexContent>
+		</xsd:complexType>
+
+		<xsd:complexType name="DigestMethodType">
+			<xsd:complexContent>
+				<xsd:restriction base="ds:DigestMethodType">
+					<xsd:attribute name="Algorithm" use="required">
+						<xsd:simpleType>
+							<xsd:restriction base="xsd:anyURI">
+								<!-- Zeilen neu fuer sha256 und sha512 -->
+								<xsd:enumeration
+									value="http://www.w3.org/2001/04/xmlenc#sha256" />
+								<xsd:enumeration
+									value="http://www.w3.org/2001/04/xmlenc#sha512" />
+								<!-- Zeilen neu fuer sha3-256, sha3-384 und sha3-512 -->
+								<xsd:enumeration
+									value="http://www.w3.org/2007/05/xmldsig-more#sha3-256" />
+								<xsd:enumeration
+									value="http://www.w3.org/2007/05/xmldsig-more#sha3-384" />
+								<xsd:enumeration
+									value="http://www.w3.org/2007/05/xmldsig-more#sha3-512" />
+								<!-- [KORR3] Zeile entfernt
+									xsd:enumeration value="http://www.w3.org/2000/09/xmldsig#sha1"/>  -->
+								<!-- [KORR4] Zeile entfernt
+									xsd:enumeration value="http: //www.w3.org/2001/04/xmlenc#ripemd160"/> -->
+							</xsd:restriction>
+						</xsd:simpleType>
+					</xsd:attribute>
+				</xsd:restriction>
+			</xsd:complexContent>
+		</xsd:complexType>
+
+		<xsd:complexType name="SignatureMethodType">
+			<xsd:complexContent>
+				<xsd:restriction base="ds:SignatureMethodType">
+					<xsd:attribute name="Algorithm" use="required">
+						<xsd:simpleType>
+							<xsd:restriction base="xsd:anyURI">
+								<!-- [KORR2] Zeilen neu fuer rsa-sha256 und rsa-sha512-->
+								<xsd:enumeration
+									value="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256" />
+								<xsd:enumeration
+									value="http://www.w3.org/2001/04/xmldsig-more#rsa-sha512" />
+								<!-- [KORR3] Zeilen neu fuer ecdsa-sha256 und ecdsa-sha512 -->
+								<xsd:enumeration
+									value="http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256" />
+								<!-- [KORR9] Zeile neu fuer ecdsa-sha384 -->
+								<xsd:enumeration
+									value="http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha384" />
+								<xsd:enumeration
+									value="http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha512" />
+								<!-- [KORR4] Zeilen neu fuer sha256-rsa-MGF1 und sha512-rsa-MGF1-->
+								<xsd:enumeration
+									value="http://www.w3.org/2007/05/xmldsig-more#sha256-rsa-MGF1" />
+								<xsd:enumeration
+									value="http://www.w3.org/2007/05/xmldsig-more#sha512-rsa-MGF1" />
+								<!-- [KORR5] Zeilen neu fuer sha3-256-rsa-MGF1, sha3-384-rsa-MGF1, sha3-512-rsa-MGF1 -->
+								<xsd:enumeration
+									value="http://www.w3.org/2007/05/xmldsig-more#sha3-256-rsa-MGF1" />
+								<xsd:enumeration
+									value="http://www.w3.org/2007/05/xmldsig-more#sha3-384-rsa-MGF1" />
+								<xsd:enumeration
+									value="http://www.w3.org/2007/05/xmldsig-more#sha3-512-rsa-MGF1" />
+								<!-- [KORR3] Zeile entfernt 
+									xsd:enumeration value="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/> -->
+								<!-- [KORR4] Zeile entfernt
+									xsd:enumeration value="http:// www.w3.org/2001/04/xmldsig-more#rsa-ripemd160"/> -->
+							</xsd:restriction>
+						</xsd:simpleType>
+					</xsd:attribute>
+				</xsd:restriction>
+			</xsd:complexContent>
+		</xsd:complexType>
+	</xsd:redefine>
+</xsd:schema>

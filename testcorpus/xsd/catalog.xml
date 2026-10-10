@@ -1,0 +1,12 @@
+<catalog xmlns="urn:oasis:names:tc:entity:xmlns:xml:catalog">
+	<uri name="http://www.w3.org/XML/1998/namespace"
+		uri="extern/xml.xsd" />
+	<uri name="http://schemas.xmlsoap.org/soap/envelope/"
+		uri="extern/soap-envelope.xsd" />
+	<uri name="http://www.w3.org/2000/09/xmldsig#"
+		uri="extern/xmldsig-core-schema.xsd" />
+	<uri name="http://www.w3.org/2001/04/xmlenc#"
+		uri="extern/xenc-schema.xsd" />
+	<uri name="http://www.w3.org/2009/xmlenc11#"
+		uri="extern/xenc-schema-11.xsd" />
+</catalog>

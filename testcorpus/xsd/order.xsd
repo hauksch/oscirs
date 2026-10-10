@@ -1,0 +1,478 @@
+<xsd:schema targetNamespace="http://www.osci.de/2002/04/osci"
+	xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+	xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+	xmlns:osci="http://www.osci.de/2002/04/osci"
+	xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
+	xmlns:xenc="http://www.w3.org/2001/04/xmlenc#"
+	xmlns:xml="http://www.w3.org/XML/1998/namespace"
+	xmlns:ns1="http://xoev.de/transport/osci12/8"
+	xmlns:ns2="http://xoev.de/transport/osci12/7"
+	xmlns:ns3="http://www.w3.org/2009/xmlenc11#"
+	attributeFormDefault="unqualified" elementFormDefault="qualified">
+
+	<!-- [KORR8] hinzugefuegte Namespaces 
+		xmlns:xml="http://www.w3.org/XML/1998/namespace" fuer: XML-Namespaces 
+		xmlns:ns1="http://xoev.de/transport/osci12/8"    fuer: order_zusatz 
+		xmlns:ns2="http://xoev.de/transport/osci12/7"    fuer: EFFI 
+		xmlns:ns3="http://www.w3.org/2009/xmlenc11#"     fuer: xmlenc11 -->
+
+	<xsd:import namespace="http://www.w3.org/XML/1998/namespace"
+		schemaLocation="http://www.w3.org/2001/xml.xsd" />
+	<xsd:import
+		namespace="http://schemas.xmlsoap.org/soap/envelope/"
+		schemaLocation="http://schemas.xmlsoap.org/soap/envelope/" />
+
+	<!-- [KORR8] Namespace umgehaengt auf osci-spezifische Schema. 
+		Von:  
+		<xsd:import namespace="http://www.w3.org/2000/09/xmldsig#"
+			schemaLocation="http://www.w3.org/TR/2001/CR-xmldsig-core-20010419/xmldsig-core-schema.xsd"/> 
+		<xsd:import namespace="http://www.w3.org/2001/04/xmlenc#" 
+			schemaLocation="http://www.w3.org/TR/xmlenc-core/xenc-schema.xsd"/>
+			
+		Auf:
+		<xsd:import namespace="http://www.w3.org/2000/09/xmldsig#" 
+			schemaLocation="./oscisig.xsd"/> 
+		<xsd:import namespace="http://www.w3.org/2001/04/xmlenc#" 
+			schemaLocation="./oscienc.xsd"/> -->
+	<xsd:import namespace="http://www.w3.org/2000/09/xmldsig#"
+		schemaLocation="oscisig.xsd" />
+	<xsd:import namespace="http://www.w3.org/2001/04/xmlenc#"
+		schemaLocation="oscienc.xsd" />
+
+	<!-- [KORR8] neue Import fuer EFFI, AES-Initialisierungsvektor und XML-Namespaces -->
+	<xsd:import namespace="http://www.w3.org/2009/xmlenc11#"
+		schemaLocation="https://www.w3.org/2008/xmlsec/Drafts/xmlenc-core-11/xenc-schema-11.xsd" />
+	<xsd:import namespace="http://xoev.de/transport/osci12/8"
+		schemaLocation="order_zusatz.xsd" />
+	<xsd:import namespace="http://xoev.de/transport/osci12/7"
+		schemaLocation="EFFI.xsd" />
+
+	<xsd:annotation>
+		<xsd:documentation xml:lang="de">
+			OSCI 1.2 - Allgemeine Typen und Strukturen
+			Dateiname: order.xsd
+		</xsd:documentation>
+	</xsd:annotation>
+
+	<!-- ### global simple types ### -->
+
+	<xsd:simpleType name="LanguagesListType">
+		<xsd:list itemType="xsd:language" />
+	</xsd:simpleType>
+
+	<xsd:simpleType name="MessageIdType">
+		<xsd:restriction base="xsd:base64Binary" />
+	</xsd:simpleType>
+
+	<xsd:simpleType name="Number">
+		<xsd:restriction base="xsd:NMTOKEN">
+			<xsd:pattern value="\d+" />
+		</xsd:restriction>
+	</xsd:simpleType>
+
+	<!-- ### global complex types and templates ### -->
+
+	<!-- ### common types ### -->
+
+	<xsd:complexType name="CertificateType">
+		<xsd:complexContent>
+			<xsd:restriction base="ds:KeyInfoType">
+				<xsd:sequence>
+					<xsd:choice>
+						<xsd:element ref="ds:X509Data" />
+					</xsd:choice>
+				</xsd:sequence>
+				<xsd:attribute name="Id" type="xsd:ID" use="optional" />
+			</xsd:restriction>
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<xsd:complexType name="CertTypeType">
+		<xsd:attribute name="Type" use="required">
+			<xsd:simpleType>
+				<xsd:restriction base="xsd:string">
+					<xsd:enumeration value="advanced" />
+					<xsd:enumeration value="qualified" />
+					<!-- [KORR1] accredited neu -->
+					<xsd:enumeration value="accredited" />
+					<xsd:enumeration value="unknown" />
+				</xsd:restriction>
+			</xsd:simpleType>
+		</xsd:attribute>
+	</xsd:complexType>
+
+	<xsd:complexType name="FeedbackEntryType">
+		<xsd:sequence>
+			<xsd:element name="Code" type="osci:Number" />
+			<xsd:element name="Text" type="xsd:string" />
+		</xsd:sequence>
+		<xsd:attribute ref="xml:lang" use="optional" />
+	</xsd:complexType>
+
+	<xsd:complexType name="FeedbackType">
+		<xsd:sequence>
+			<xsd:element name="Entry" type="osci:FeedbackEntryType"
+				maxOccurs="unbounded" />
+		</xsd:sequence>
+	</xsd:complexType>
+
+	<xsd:complexType name="InspectionType">
+		<xsd:sequence>
+			<xsd:element name="Timestamp" type="osci:TimestampType" />
+			<!-- [KORR1] X509SubjectName neu -->
+			<xsd:element name="X509SubjectName" type="xsd:string" />
+			<xsd:element name="X509IssuerName" type="xsd:string" />
+			<xsd:element name="X509SerialNumber" type="xsd:integer" />
+			<xsd:element name="CertType" type="osci:CertTypeType" />
+			<xsd:element name="MathResult" type="osci:MathResultType" />
+			<xsd:element name="OfflineResult"
+				type="osci:OfflineResultType" />
+			<xsd:element name="OnlineResult"
+				type="osci:OnlineResultType" minOccurs="0" />
+		</xsd:sequence>
+	</xsd:complexType>
+
+	<xsd:complexType name="InspectionReportType">
+		<xsd:sequence>
+			<xsd:element name="Inspection" type="osci:InspectionType"
+				minOccurs="0" maxOccurs="unbounded" />
+		</xsd:sequence>
+	</xsd:complexType>
+
+	<xsd:complexType name="MathResultType">
+		<xsd:attribute name="Result" use="required">
+			<xsd:simpleType>
+				<xsd:restriction base="xsd:string">
+					<xsd:enumeration value="ok" />
+					<xsd:enumeration value="corrupted" />
+					<!-- [KORR1] indeterminate neu -->
+					<xsd:enumeration value="indeterminate" />
+				</xsd:restriction>
+			</xsd:simpleType>
+		</xsd:attribute>
+	</xsd:complexType>
+
+	<xsd:complexType name="OfflineResultType">
+		<xsd:attribute name="Result" use="required">
+			<xsd:simpleType>
+				<xsd:restriction base="xsd:string">
+					<xsd:enumeration value="valid" />
+					<xsd:enumeration value="invalid" />
+					<!-- [KORR1] indeterminate neu -->
+					<xsd:enumeration value="indeterminate" />
+				</xsd:restriction>
+			</xsd:simpleType>
+		</xsd:attribute>
+	</xsd:complexType>
+
+	<xsd:complexType name="OnlineResultType">
+		<xsd:sequence>
+			<!-- [KORR1] minOccurs="0" in den folgenden 3 Elementen neu -->
+			<!-- [KORR8] Type: name="OSCP" muss sein name="OCSP" -->
+			<xsd:element name="OCSP" type="xsd:base64Binary"
+						 minOccurs="0" />
+			<xsd:element name="CRL" type="xsd:dateTime" 
+				minOccurs="0" />
+			<!-- [KORR1] type="xsd:base64Binary" neu -->
+			<xsd:element name="LDAP" type="xsd:base64Binary"
+				minOccurs="0" />
+			<!-- [KORR8] fehlerhafte Zeile </xsd:element> an dieser Stelle 
+				entfernt -->
+		</xsd:sequence>
+		<xsd:attribute name="Result" use="required">
+			<xsd:simpleType>
+				<xsd:restriction base="xsd:string">
+					<xsd:enumeration value="ok" />
+					<xsd:enumeration value="revoked" />
+				</xsd:restriction>
+			</xsd:simpleType>
+		</xsd:attribute>
+	</xsd:complexType>
+
+	<xsd:complexType name="TimestampType">
+		<xsd:choice>
+			<xsd:element name="Plain" type="xsd:dateTime" />
+			<xsd:element name="Cryptographic">
+				<xsd:complexType>
+					<xsd:simpleContent>
+						<xsd:extension base="xsd:base64Binary">
+							<!-- [KORR8] Typo korrigiert: Algorith zu Algorithm -->
+							<xsd:attribute name="Algorithm" type="xsd:anyURI" />
+						</xsd:extension>
+					</xsd:simpleContent>
+				</xsd:complexType>
+			</xsd:element>
+		</xsd:choice>
+	</xsd:complexType>
+
+	<!-- [KORR8] hinzugefuegt -->
+	<xsd:element name="Base64Content">
+		<xsd:complexType>
+			<xsd:simpleContent>
+				<xsd:extension base="xsd:base64Binary">
+					<xsd:attribute name="Id" type="xsd:ID" use="required" />
+				</xsd:extension>
+			</xsd:simpleContent>
+		</xsd:complexType>
+	</xsd:element>
+
+	<xsd:complexType name="ContentType">
+		<xsd:sequence>
+			<xsd:any namespace="##any" minOccurs="0"
+				maxOccurs="unbounded" />
+		</xsd:sequence>
+		<!-- [KORR8] Attribute neu eingefuegt fuer Id und href -->
+		<xsd:attribute name="Id" type="xsd:ID" 
+			use="optional" />
+		<xsd:attribute name="href" type="xsd:string"
+			use="optional" />
+		<xsd:anyAttribute namespace="##any" />
+	</xsd:complexType>
+
+	<xsd:complexType name="ContentContainerType">
+		<xsd:sequence>
+			<xsd:element ref="ds:Signature" minOccurs="0"
+				maxOccurs="unbounded" />
+			<!-- [KORR1] maxOccurs="unbounded" neu -->
+			<xsd:element name="Content" type="osci:ContentType"
+				minOccurs="0" maxOccurs="unbounded" />
+			<xsd:element ref="xenc:EncryptedData" minOccurs="0"
+				maxOccurs="unbounded" />
+		</xsd:sequence>
+		<!-- [KORR8] Attribut neu eingefuegt fuer Id -->
+		<xsd:attribute name="Id" type="xsd:ID" use="required" />
+		<!-- [KORR1] naechste Zeile neu -->
+		<xsd:anyAttribute namespace="##any" />
+	</xsd:complexType>
+
+	<!-- ### common templates ### -->
+
+	<xsd:complexType name="ProcessCardBundleTemplate"
+		abstract="true">
+		<xsd:sequence>
+			<xsd:element name="MessageId" type="osci:MessageIdType" />
+			<xsd:element name="ProcessCard"
+				type="osci:ProcessCardTemplate" />
+			<xsd:element name="InspectionReport"
+				type="osci:InspectionReportType" />
+		</xsd:sequence>
+	</xsd:complexType>
+
+	<xsd:complexType name="ProcessCardTemplate"
+		abstract="true">
+		<xsd:sequence>
+			<xsd:element name="Creation" type="osci:TimestampType"
+				minOccurs="0" />
+			<xsd:element name="Forwarding" type="osci:TimestampType"
+				minOccurs="0" />
+			<xsd:element name="Reception" type="osci:TimestampType"
+				minOccurs="0" />
+			<xsd:element name="Subject" type="xsd:string"
+				minOccurs="0" />
+		</xsd:sequence>
+		<xsd:attribute name="RecentModification"
+			type="xsd:dateTime" use="required" />
+	</xsd:complexType>
+
+	<!-- ### SOAP header and body block types ### -->
+
+	<xsd:complexType name="SignatureBlockType">
+		<xsd:complexContent>
+			<xsd:extension base="osci:DefaultHeaderBlockTemplate">
+				<xsd:sequence>
+					<xsd:element ref="ds:Signature" />
+				</xsd:sequence>
+			</xsd:extension>
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<xsd:complexType name="DesiredLanguagesType">
+		<xsd:complexContent>
+			<xsd:extension base="osci:DefaultHeaderBlockTemplate">
+				<xsd:attribute name="LanguagesList" use="required">
+					<xsd:simpleType>
+						<xsd:restriction base="osci:LanguagesListType">
+							<xsd:minLength value="1" />
+						</xsd:restriction>
+					</xsd:simpleType>
+				</xsd:attribute>
+			</xsd:extension>
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<xsd:complexType name="QualityOfTimestampType">
+		<xsd:complexContent>
+			<xsd:extension base="osci:DefaultHeaderBlockTemplate">
+				<xsd:attribute name="Service" use="required">
+					<xsd:simpleType>
+						<xsd:restriction base="xsd:string">
+							<xsd:enumeration value="creation" />
+							<xsd:enumeration value="reception" />
+						</xsd:restriction>
+					</xsd:simpleType>
+				</xsd:attribute>
+				<xsd:attribute name="Quality" use="required">
+					<xsd:simpleType>
+						<xsd:restriction base="xsd:string">
+							<xsd:enumeration value="plain" />
+							<xsd:enumeration value="cryptographic" />
+						</xsd:restriction>
+					</xsd:simpleType>
+				</xsd:attribute>
+			</xsd:extension>
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<xsd:complexType name="ContentPackageType">
+		<xsd:complexContent>
+			<xsd:extension base="osci:DefaultBodyBlockTemplate">
+				<xsd:sequence>
+					<xsd:element ref="xenc:EncryptedData" minOccurs="0"
+						maxOccurs="unbounded" />
+					<xsd:element name="ContentContainer"
+						type="osci:ContentContainerType" minOccurs="0"
+						maxOccurs="unbounded" />
+				</xsd:sequence>
+			</xsd:extension>
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<!-- ### SOAP header and body templates ### -->
+
+	<xsd:complexType name="GeneralHeaderBlockTemplate"
+		abstract="true">
+		<xsd:attribute name="Id" type="xsd:ID" use="required" />
+		<!-- [KORR8] fixed="1" entfernt, da dies derzeit massive Probleme 
+			beim validieren mit Eclipse erzeugt. -->
+		<xsd:attribute ref="soap:mustUnderstand" use="required" />
+	</xsd:complexType>
+
+	<xsd:complexType name="DefaultHeaderBlockTemplate"
+		abstract="true">
+		<xsd:complexContent>
+			<xsd:extension base="osci:GeneralHeaderBlockTemplate">
+				<xsd:attribute ref="soap:actor" use="required"
+					fixed="http://schemas.xmlsoap.org/soap/actor/next" />
+			</xsd:extension>
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<xsd:complexType name="GeneralBodyBlockTemplate"
+		abstract="true" />
+
+	<xsd:complexType name="DefaultBodyBlockTemplate"
+		abstract="true">
+		<xsd:complexContent>
+			<!-- [KORR1] geaendert von osci:DefaultBodyBlockTemplate 
+				zu osci:GeneralBodyBlockTemplate
+			-->
+			<xsd:extension base="osci:GeneralBodyBlockTemplate" />
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<xsd:complexType name="ControlBlockTemplate"
+		abstract="true">
+		<xsd:complexContent>
+			<xsd:extension base="osci:DefaultHeaderBlockTemplate">
+				<xsd:sequence>
+					<xsd:element name="Response" type="xsd:string"
+						minOccurs="0" />
+					<xsd:element name="Challenge" type="xsd:string"
+						minOccurs="0" />
+				</xsd:sequence>
+				<xsd:attribute name="ConversationId"
+					type="osci:Number" use="optional" />
+				<xsd:attribute name="SequenceNumber"
+					type="osci:Number" use="optional" />
+			</xsd:extension>
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<xsd:complexType
+		name="IntermediaryCertificatesTemplate" abstract="true">
+		<xsd:complexContent>
+			<xsd:extension base="osci:GeneralHeaderBlockTemplate">
+				<xsd:sequence>
+					<xsd:element name="CipherCertificateIntermediary"
+						type="osci:CertificateType" minOccurs="0" />
+					<xsd:element name="SignatureCertificateIntermediary"
+						type="osci:CertificateType" minOccurs="0" />
+				</xsd:sequence>
+				<xsd:attribute ref="soap:actor" use="required"
+					fixed="http://www.w3.org/2001/12/soap-envelope/actor/none" />
+			</xsd:extension>
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<xsd:complexType
+		name="NonIntermediaryCertificatesTemplate" abstract="true">
+		<xsd:complexContent>
+			<xsd:extension base="osci:GeneralHeaderBlockTemplate">
+				<xsd:sequence>
+					<xsd:element name="CipherCertificateOriginator"
+						type="osci:CertificateType" minOccurs="0" />
+					<xsd:element name="CipherCertificateOtherAuthor"
+						type="osci:CertificateType" minOccurs="0" maxOccurs="unbounded" />
+					<xsd:element name="CipherCertificateAddressee"
+						type="osci:CertificateType" minOccurs="0" />
+					<xsd:element name="CipherCertificateOtherReader"
+						type="osci:CertificateType" minOccurs="0" maxOccurs="unbounded" />
+					<xsd:element name="SignatureCertificateOriginator"
+						type="osci:CertificateType" minOccurs="0" />
+					<xsd:element name="SignatureCertificateOtherAuthor"
+						type="osci:CertificateType" minOccurs="0" maxOccurs="unbounded" />
+					<!-- [KORR1] Zeile neu -->
+					<xsd:element name="SignatureCertificateAddressee"
+						type="osci:CertificateType" minOccurs="0" />
+				</xsd:sequence>
+				<xsd:attribute ref="soap:actor" use="required"
+					fixed="http://www.w3.org/2001/12/soap-envelope/actor/none" />
+			</xsd:extension>
+		</xsd:complexContent>
+	</xsd:complexType>
+
+	<xsd:complexType name="SelectionDateType">
+		<xsd:simpleContent>
+			<xsd:extension base="xsd:dateTime">
+				<xsd:attribute name="NoReception" type="xsd:boolean"
+							   use="optional" />
+				<xsd:attribute name="Role" use="optional">
+					<!-- Hinweis KoSIT: zwischen den Attributen "name" und "use" befand
+						sich noch das Attribut "type". Dieser Fehler wurde beseitigt. -->
+					<xsd:simpleType>
+						<xsd:restriction base="xsd:string">
+							<xsd:enumeration value="Addressee" />
+							<xsd:enumeration value="Originator" />
+						</xsd:restriction>
+					</xsd:simpleType>
+				</xsd:attribute>
+			</xsd:extension>
+		</xsd:simpleContent>
+	</xsd:complexType>
+
+	<xsd:complexType name="SelectionRuleProcessCardType">
+		<xsd:choice>
+			<!-- [KORR8] "ReceptionOfDelivery" und "RecentModification"
+               mussten geaendert werden von "SelectionDateType" zu "osci:SelectionDateType" -->
+			<xsd:element name="ReceptionOfDelivery"
+						 type="osci:SelectionDateType" />
+			<xsd:element name="RecentModification"
+						 type="osci:SelectionDateType" />
+				<xsd:element name="MessageId"
+						 type="osci:MessageIdType" maxOccurs="unbounded" />
+		</xsd:choice>
+	</xsd:complexType>
+	<!-- [KORR8] Abgleich mit Implementation entfernt aus PartialFetchDeliveryOldNS.xsd 
+		FetchDelivery.xsd -->
+	<xsd:complexType name="SelectionRuleFetchType">
+				<xsd:choice>
+			<xsd:element name="ReceptionOfDelivery"
+				type="xsd:dateTime" />
+			<xsd:element name="RecentModification"
+						 type="xsd:dateTime " minOccurs="0"/>
+			<xsd:element name="MessageId" type="osci:MessageIdType" />
+		</xsd:choice>
+	</xsd:complexType>
+	<xsd:element name="ContentContainer"
+				 type="osci:ContentContainerType"/>
+</xsd:schema>
