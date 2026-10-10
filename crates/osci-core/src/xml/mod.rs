@@ -4,6 +4,7 @@
 
 pub mod c14n;
 pub mod parser;
+pub mod serialize;
 pub mod writer;
 
 use std::collections::BTreeMap;
@@ -22,14 +23,16 @@ pub struct Document {
     pub pis_before_root: Vec<(String, String)>,
     /// Processing instructions after the root element, in order.
     pub pis_after_root: Vec<(String, String)>,
+    /// Raw bytes before the root element (declaration, PIs, whitespace),
+    /// kept for byte-exact reserialization.
+    pub prolog: String,
+    /// Raw bytes after the root element.
+    pub epilog: String,
     pub root: Element,
 }
 
 impl Document {
-    /// Resolve the namespace URI of a qname against the bindings of
-    /// `scope` (an in-scope prefix -> URI map). Unprefixed names resolve
-    /// to `""` (attributes never inherit the default namespace; callers
-    /// pass the right map for elements).
+    /// Depth-first search for an element carrying the given `Id`.
     pub fn find_by_id<'a>(&'a self, id: &str) -> Option<&'a Element> {
         self.root.find_by_id(id)
     }
@@ -45,6 +48,9 @@ pub struct Element {
     /// included, qname exactly as written).
     pub attrs: Vec<(String, String)>,
     pub children: Vec<Node>,
+    /// Written as `<x/>` in the source (affects byte-exact serialization
+    /// only; semantically identical to an empty element).
+    pub self_closing: bool,
 }
 
 impl Element {

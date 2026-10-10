@@ -42,12 +42,22 @@ pub fn parse(input: &str) -> Result<Document, XmlError> {
     let mut stack: Vec<Element> = Vec::new();
     let mut root_taken = false;
     let mut pending_text = String::new();
+    // byte offset after the last processed event, for prolog/epilog capture
+    let mut prev_end = 0usize;
+    let mut epilog_start: Option<usize> = None;
     // Bound namespace prefixes, for the Xerces-style "unbound prefix" check.
     let mut ns_stack: Vec<HashSet<String>> = vec![HashSet::new()];
 
     loop {
-        match reader.read_event() {
+        let event = reader.read_event();
+        if event.is_ok() && stack.is_empty() && root_taken && epilog_start.is_none() {
+            // the root element just closed: everything from here on is epilog
+        }
+        match event {
             Ok(Event::Start(e)) => {
+                if stack.is_empty() && !root_taken {
+                    doc.prolog = input[..prev_end].to_string();
+                }
                 flush_text(&mut stack, &mut pending_text);
                 let element = start_element(&e, &ns_stack)?;
                 push_bindings(&mut ns_stack, &element);
@@ -74,12 +84,14 @@ pub fn parse(input: &str) -> Result<Document, XmlError> {
                         }
                         doc.root = finished;
                         root_taken = true;
+                        epilog_start = Some(reader.buffer_position() as usize);
                     }
                 }
             }
             Ok(Event::Empty(e)) => {
                 flush_text(&mut stack, &mut pending_text);
-                let element = start_element(&e, &ns_stack)?;
+                let mut element = start_element(&e, &ns_stack)?;
+                element.self_closing = true;
                 match stack.last_mut() {
                     Some(p) => {
                         p.children.push(Node::Element(element));
@@ -129,6 +141,11 @@ pub fn parse(input: &str) -> Result<Document, XmlError> {
             Ok(Event::Eof) => break,
             Err(e) => return Err(XmlError::Malformed(e.to_string())),
         }
+        prev_end = reader.buffer_position() as usize;
+    }
+
+    if let Some(start) = epilog_start {
+        doc.epilog = input[start.min(input.len())..].to_string();
     }
 
     if let Some(open) = stack.first() {
@@ -218,6 +235,7 @@ fn start_element(
         local,
         attrs,
         children: Vec::new(),
+        self_closing: false,
     })
 }
 
