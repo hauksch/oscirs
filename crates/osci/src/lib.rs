@@ -4,5 +4,6 @@
 //! dialogs, roles, message types and the dialog state machine, mirroring the
 //! public API of `de.osci.osci-bibliothek` 2.6.x.
 
+pub mod dialog;
 pub mod security;
 pub mod sign;

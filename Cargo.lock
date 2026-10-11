@@ -830,6 +830,7 @@ dependencies = [
  "osci-core",
  "osci-crypto",
  "osci-transport",
+ "rand",
  "thiserror",
 ]
 
@@ -884,6 +885,9 @@ dependencies = [
 [[package]]
 name = "osci-transport"
 version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
 
 [[package]]
 name = "p256"

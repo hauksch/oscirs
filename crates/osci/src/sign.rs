@@ -55,36 +55,49 @@ pub fn sign_message_xml(xml: &str, params: &SignParams<'_>) -> Result<String, Si
 
     let doc = parser::parse(xml).map_err(|e| SignError::Xml(e.to_string()))?;
 
+    // pass 1: a MINIMAL placeholder signature materializes the control
+    // block's canonical region (it only appears once a transport
+    // SignedInfo references it); every other region is produced
+    // regardless of signatures
+    let minimal = vec!["#controlblock".to_string(), "#body".to_string()];
+    let minimal_xml = build_signature_xml(&minimal, &method, &digest, &[], params, true)?;
+    let minimal_doc_xml = inject_after_control_block(xml, &minimal_xml)?;
+    let minimal_doc = parser::parse(&minimal_doc_xml).map_err(|e| SignError::Xml(e.to_string()))?;
+    let placeholder_canon =
+        canonicalize(&minimal_doc).map_err(|e| SignError::Canonicalization(e.to_string()))?;
+
     // reference list: control block ALWAYS (the reference library rejects
-    // messages without it), then languages, quality timestamps, the
-    // message entry, attachments, certificates and body where present
+    // messages without it); everything else only when its region exists
     let mut references = vec!["#controlblock".to_string()];
     for id in [
         "desiredlanguages",
         "qualityoftimestamp_creation",
         "qualityoftimestamp_reception",
     ] {
-        references.push(format!("#{id}"));
+        if placeholder_canon
+            .canonical_regions
+            .contains_key(&format!("#{id}"))
+        {
+            references.push(format!("#{id}"));
+        }
     }
-    if let Some(entry_id) = find_entry_id(&doc) {
+    if let Some(entry_id) = find_entry_id(&doc)
+        && placeholder_canon.canonical_regions.contains_key(&entry_id)
+    {
         references.push(entry_id);
     }
     for (cid, _) in params.attachments {
         references.push(format!("cid:{cid}"));
     }
-    references.push("#nonintermediarycertificates".to_string());
-    references.push("#body".to_string());
-
-    // pass 1: inject a placeholder signature so the canonicalizer sees a
-    // SignedInfo referencing the control block (its canonical region only
-    // materializes once a transport signature references it), then read
-    // the digest inputs from the placeholder-signed document
-    let placeholder = build_signature_xml(&references, &method, &digest, &[], params, true)?;
-    let placeholder_doc_xml = inject_after_control_block(xml, &placeholder)?;
-    let placeholder_doc =
-        parser::parse(&placeholder_doc_xml).map_err(|e| SignError::Xml(e.to_string()))?;
-    let placeholder_canon =
-        canonicalize(&placeholder_doc).map_err(|e| SignError::Canonicalization(e.to_string()))?;
+    if placeholder_canon
+        .canonical_regions
+        .contains_key("#nonintermediarycertificates")
+    {
+        references.push("#nonintermediarycertificates".to_string());
+    }
+    if placeholder_canon.canonical_regions.contains_key("#body") {
+        references.push("#body".to_string());
+    }
     let digest_inputs: Vec<(String, Vec<u8>)> = references
         .iter()
         .map(|uri| {
