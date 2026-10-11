@@ -18,6 +18,10 @@ mkdir -p "$CORPUS"/{messages,media,certs,xsd}
 cp "$RES"/files/*.osci "$RES"/files/*.mime "$CORPUS/messages/"
 cp "$RES"/files/AccDelNestedCocos.xml "$RES"/files/EncryptedDialogInit2.xml "$RES"/files/simpleXml.xml "$CORPUS/messages/"
 
+# 1b. Extension-module fixture (MessageMetaData custom header)
+mkdir -p "$CORPUS/extension"
+cp "$REF/osci-bibliothek-lib/extension-message-meta-data/src/test/resources/"*.xml "$CORPUS/extension/" 2>/dev/null || true
+
 # 2. Media payloads referenced by tests
 cp "$RES"/files/simple.jpg "$RES"/files/simple.xml "$CORPUS/media/"
 

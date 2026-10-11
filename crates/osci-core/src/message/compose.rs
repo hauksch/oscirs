@@ -11,7 +11,7 @@ use crate::soap::{
 };
 use crate::xml::writer::{XmlWriter, escape_text};
 
-use super::MessageType;
+use super::{ChunkInformation, MessageType};
 
 pub const MIME_BOUNDARY_PREFIX: &str = "MIME_boundary";
 pub const MESSAGE_CONTENT_ID: &str = "osci@message";
@@ -97,6 +97,8 @@ pub struct OutMessage {
     pub process_card_bundles: Vec<OutProcessCardBundle>,
     /// Response feedback entries.
     pub feedback: Vec<OutFeedback>,
+    /// Chunk information of partial deliveries.
+    pub chunk_information: Option<ChunkInformation>,
     /// Body content (containers; omitted for entry-in-body types).
     pub containers: Vec<OutContentContainer>,
     pub attachments: Vec<OutAttachment>,
@@ -169,6 +171,24 @@ fn entry_inner_xml(msg: &OutMessage, kind: MessageType) -> String {
                 inner.push_str(entry);
             }
         }
+    }
+    if let Some(chunk) = &msg.chunk_information {
+        let mut attrs = format!(" ChunkNumber=\"{}\"", chunk.chunk_number);
+        if let Some(v) = chunk.chunk_size {
+            attrs.push_str(&format!(" ChunkSize=\"{v}\""));
+        }
+        if let Some(v) = chunk.total_chunk_numbers {
+            attrs.push_str(&format!(" TotalChunkNumbers=\"{v}\""));
+        }
+        if let Some(v) = chunk.total_message_size {
+            attrs.push_str(&format!(" TotalMessageSize=\"{v}\""));
+        }
+        if let Some(v) = chunk.received_chunks {
+            attrs.push_str(&format!(" ReceivedChunks=\"{v}\""));
+        }
+        inner.push_str(&format!(
+            "<osci2017:ChunkInformation{attrs}></osci2017:ChunkInformation>"
+        ));
     }
     if !msg.process_card_bundles.is_empty() {
         inner.push_str(&bundles_xml(&msg.process_card_bundles));

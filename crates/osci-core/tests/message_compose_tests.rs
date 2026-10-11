@@ -140,6 +140,10 @@ fn store_delivery_compose_parse_roundtrip() {
 /// The XML part validates against the XSD corpus through the Java oracle.
 #[test]
 fn composed_messages_validate_against_xsd() {
+    if !oracle_available() {
+        eprintln!("skipping: java oracle not built");
+        return;
+    }
     // the NonIntermediaryCertificates content is restricted per message
     // type: StoreDelivery wants cipher certs (addressee's mandatory),
     // FetchDelivery ONLY the signature certificate of the originator,
@@ -211,6 +215,10 @@ fn workspace_root() -> PathBuf {
         .nth(2)
         .unwrap()
         .to_path_buf()
+}
+
+fn oracle_available() -> bool {
+    workspace_root().join("oracle/build/classpath.txt").exists()
 }
 
 fn oracle_validate(xml: &[u8]) -> (String, Option<String>) {

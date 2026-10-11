@@ -1,0 +1,31 @@
+<ns4:MessageMetaData xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:ns2="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd" xmlns:ns3="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd" xmlns:ns4="http://www.osci.eu/ws/2014/10/transport" xmlns:ns5="http://www.w3.org/2005/08/addressing" xmlns:osci="http://www.osci.de/2002/04/osci" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Id="MetaDataWrong" TestMsg="false">
+	<ns4:DeliveryAttributes>
+		<ns4:ServiceQuality>meldewesen</ns4:ServiceQuality>
+	</ns4:DeliveryAttributes>
+	<ns4:Originators>
+		<ns4:Author>
+			<ns4:Identifier name="Ralf Lindemann" type="xoev">ags:02044096</ns4:Identifier>
+		</ns4:Author>
+	</ns4:Originators>
+	<ns4:Destinations>
+		<ns4:Reader>
+			<ns4:Identifier name="Gov Infra Test Server" type="xoev">ags:0403014096</ns4:Identifier>
+		</ns4:Reader>
+	</ns4:Destinations>
+	<ns4:MsgIdentification>
+		<ns5:MessageID>urn:de:xta:messageid:TestXTAgovernikus:213cd4be-67c1-44ad-9fff-46da9b73b0eb</ns5:MessageID>
+	</ns4:MsgIdentification>
+	<ns4:Qualifier>
+		<ns4:Service>http://www.osci.de/xinneres/rueckweisung/3/xinneresrueckweisungv3.wsdl</ns4:Service>
+		<ns4:BusinessScenario>
+			<ns4:Defined listURI="urn:de:xta:codeliste:business.scenario" listVersionID="2">
+				<code>XINNERES_DATA</code>
+			</ns4:Defined>
+		</ns4:BusinessScenario>
+		<ns4:MessageType listURI="urn:de:codeliste:nachrichtentyp" listVersionID="1" payloadSchema="http://www.osci.de/xinneres/rueckweisung/3/xinneres-rueckweisung.xsd">
+			<code>rueckweisung.asynchron.0010</code>
+			<name>XInneres-Rueckweisung</name>
+		</ns4:MessageType>
+	</ns4:Qualifier>
+	<ns4:MsgSize>7478</ns4:MsgSize>
+</ns4:MessageMetaData>

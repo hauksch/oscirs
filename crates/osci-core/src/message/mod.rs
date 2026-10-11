@@ -2,6 +2,8 @@
 //! recognition and parsing, plus composition (`compose`).
 
 pub mod compose;
+pub mod mmd;
+pub mod stored;
 
 use std::collections::BTreeMap;
 
@@ -220,6 +222,34 @@ pub struct ContentPackage {
     pub encrypted_data: Vec<EncryptedDataRef>,
 }
 
+/// `osci2017:ChunkInformation` of partial deliveries. Store side carries
+/// the total chunk count and message size; fetch side may carry the
+/// number of already-received chunks instead.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ChunkInformation {
+    pub chunk_number: i64,
+    pub chunk_size: Option<i64>,
+    pub total_chunk_numbers: Option<i64>,
+    pub total_message_size: Option<i64>,
+    pub received_chunks: Option<i64>,
+}
+
+fn parse_chunk_information(element: &Element) -> Option<ChunkInformation> {
+    element
+        .elements()
+        .find(|e| e.local == "ChunkInformation")
+        .map(|c| ChunkInformation {
+            chunk_number: c
+                .attr("ChunkNumber")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(-1),
+            chunk_size: c.attr("ChunkSize").and_then(|v| v.parse().ok()),
+            total_chunk_numbers: c.attr("TotalChunkNumbers").and_then(|v| v.parse().ok()),
+            total_message_size: c.attr("TotalMessageSize").and_then(|v| v.parse().ok()),
+            received_chunks: c.attr("ReceivedChunks").and_then(|v| v.parse().ok()),
+        })
+}
+
 /// A parsed OSCI message.
 #[derive(Debug, Clone, Default)]
 pub struct OsciMessage {
@@ -233,6 +263,8 @@ pub struct OsciMessage {
     pub process_card_bundles: Vec<ProcessCardBundle>,
     /// The request echoed inside a response entry.
     pub echoed_request_kind: Option<MessageType>,
+    /// Chunk information of partial deliveries (entry or echoed entry).
+    pub chunk_information: Option<ChunkInformation>,
     pub body: Option<ContentPackage>,
 }
 
@@ -506,6 +538,8 @@ pub fn parse_message(doc: &Document) -> Result<OsciMessage, MessageError> {
     // and responses alike; responseToMediateDelivery carries the
     // Request/Reply variants
     message.process_card_bundles = parse_process_card_bundles(entry);
+
+    message.chunk_information = parse_chunk_information(entry);
 
     if kind.is_response() {
         message.feedback = parse_feedback(entry);
