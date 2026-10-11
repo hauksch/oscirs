@@ -5,3 +5,4 @@
 //! public API of `de.osci.osci-bibliothek` 2.6.x.
 
 pub mod security;
+pub mod sign;

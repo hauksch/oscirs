@@ -75,8 +75,11 @@ public final class CryptoSpike {
       case "validate":
         cmdValidate(args.length > 1 ? args[1] : "../testcorpus/xsd");
         break;
+      case "loadverify":
+        cmdLoadVerify(corpus);
+        break;
       default:
-        System.err.println("usage: CryptoSpike vectors|verify|unwrap|canonize|validate [xsddir]");
+        System.err.println("usage: CryptoSpike vectors|verify|unwrap|canonize|validate [xsddir]|loadverify");
         System.exit(2);
     }
   }
@@ -187,6 +190,32 @@ public final class CryptoSpike {
     {
       System.out.println("INVALID line " + e.getLineNumber() + " col " + e.getColumnNumber() + ": " + e.getMessage());
       System.exit(5);
+    }
+  }
+
+  /**
+   * Load a full MIME message from stdin through the reference library's
+   * own parser (StoredMessage.loadMessage): structural parse plus
+   * transport-signature verification. Success means the reference
+   * implementation accepts the message.
+   */
+  private static void cmdLoadVerify(String corpus) throws Exception {
+    byte[] message = System.in.readAllBytes();
+    try
+    {
+      de.osci.osci12.messagetypes.StoredMessage sm =
+          de.osci.osci12.messagetypes.StoredMessage.loadMessageCheckingSignature(
+              new ByteArrayInputStream(message));
+      System.out.println("LOADED type=" + sm.getClass().getSimpleName()
+                         + " signed=" + sm.isSigned());
+    }
+    catch (Throwable t)
+    {
+      Throwable root = t;
+      while (root.getCause() != null)
+        root = root.getCause();
+      System.out.println("REJECTED " + root);
+      System.exit(6);
     }
   }
 
