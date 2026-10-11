@@ -26,18 +26,18 @@ rust-test:
 
 # Differential testing against the pinned Java reference (tag 2.6.1):
 # build the reference, extract the corpus, compile the oracle harness and
-# run the cross-verification spike suite. Needs network for cloning/Maven.
+# run the full workspace suite (oracle-dependent tests auto-enable).
 oracle-test:
   stage: oracle
   image: rust:1-slim
   before_script:
-    - apt-get update && apt-get install -y --no-install-recommends openjdk-17-jdk-headless maven
+    - apt-get update && apt-get install -y --no-install-recommends openjdk-17-jdk-headless maven openssl
   script:
     - ./scripts/fetch-reference.sh
     - cd reference/osci-bib-java && mvn -B verify; cd ../..
     - ./scripts/extract-testcorpus.sh
     - ./scripts/build-oracle.sh
-    - OSCI_JAVA=/usr/bin/java cargo test -p osci-crypto --test spike_cross_verify
+    - OSCI_JAVA=/usr/bin/java cargo test --workspace
   cache:
     key: oracle-test
     paths: [.cargo-cache/registry, target/, reference/]

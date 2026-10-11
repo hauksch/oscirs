@@ -27,3 +27,4 @@ x509-parser = "0.18.1"
 [dev-dependencies]
 aes-gcm = "0.10"
 osci-core = { path = "../osci-core" }
+proptest = "1.12.0"

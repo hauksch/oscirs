@@ -7,6 +7,8 @@ members = [
   "crates/osci-samples",
   "crates/osci-transport",
 ]
+# fuzz/ is a separate cargo workspace (cargo-fuzz layout)
+exclude = ["fuzz"]
 
 [workspace.package]
 version = "0.1.0"
