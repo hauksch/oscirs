@@ -830,6 +830,7 @@ dependencies = [
  "osci-core",
  "osci-crypto",
  "osci-transport",
+ "thiserror",
 ]
 
 [[package]]

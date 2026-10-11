@@ -10,3 +10,4 @@ publish.workspace = true
 osci-core = { path = "../osci-core" }
 osci-crypto = { path = "../osci-crypto" }
 osci-transport = { path = "../osci-transport" }
+thiserror = "2.0.21"
