@@ -4,6 +4,8 @@
 
 use std::sync::Mutex;
 
+pub mod http;
+
 /// Transport SPI: sends a full MIME message stream and returns the
 /// response stream.
 pub trait Transport: Send + Sync {

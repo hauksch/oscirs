@@ -8,3 +8,6 @@ publish.workspace = true
 
 [dependencies]
 osci = { path = "../osci" }
+osci-core = { version = "0.1.0", path = "../osci-core" }
+osci-crypto = { version = "0.1.0", path = "../osci-crypto" }
+osci-transport = { version = "0.1.0", path = "../osci-transport" }

@@ -8,3 +8,4 @@ publish.workspace = true
 
 [dependencies]
 thiserror = "2.0.21"
+ureq = "3.4.2"
