@@ -7,12 +7,12 @@ use proptest::prelude::*;
 
 use osci_core::helper::base64::{self, Base64Decoder, Base64Encoder};
 use osci_core::helper::mime::MimeParser;
+use osci_core::message::MessageType;
 use osci_core::message::compose::{
     OutCertEntry, OutContent, OutContentContainer, OutMessage, compose_message,
 };
-use osci_core::message::{MessageType, parse_message};
 use osci_core::soap::{CertRole, CertUse, ControlBlock};
-use osci_core::xml::c14n::{canonicalize, canonicalize_str};
+use osci_core::xml::c14n::canonicalize_str;
 use osci_core::xml::parser;
 use osci_core::xml::serialize::document_to_string;
 
@@ -28,8 +28,8 @@ prop_compose! {
     }
 }
 
-/// Base64: encode -> decode is the identity for arbitrary bytes, and the
-/// wire length formula holds for every length.
+// Base64: encode -> decode is the identity for arbitrary bytes, and the
+// wire length formula holds for every length.
 proptest! {
     #[test]
     fn base64_roundtrip(data in arb_bytes()) {
@@ -41,8 +41,8 @@ proptest! {
     }
 }
 
-/// Base64 streaming: chunked writes equal one whole write; chunked reads
-/// equal read_to_end.
+// Base64 streaming: chunked writes equal one whole write; chunked reads
+// equal read_to_end.
 proptest! {
     #[test]
     fn base64_streaming_chunked_equals_whole(
@@ -78,8 +78,8 @@ proptest! {
     }
 }
 
-/// The decoder is total: it never panics on arbitrary input, and accepts
-/// or errors cleanly.
+// The decoder is total: it never panics on arbitrary input, and accepts
+// or errors cleanly.
 proptest! {
     #[test]
     fn base64_decode_is_total(input in ".*") {
@@ -87,7 +87,7 @@ proptest! {
     }
 }
 
-/// Canonicalization is idempotent: canon(canon(x)) == canon(x) as bytes.
+// Canonicalization is idempotent: canon(canon(x)) == canon(x) as bytes.
 proptest! {
     #[test]
     fn c14n_idempotent(xml in r#"<root xmlns="urn:x"><a b="1">text &amp; more</a><b/></root>"#) {
@@ -97,7 +97,7 @@ proptest! {
     }
 }
 
-/// The parser is total on arbitrary input (no panics, only Err).
+// The parser is total on arbitrary input (no panics, only Err).
 proptest! {
     #[test]
     fn xml_parse_is_total(input in ".*") {
@@ -149,8 +149,17 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
     #[test]
     fn mime_parts_survive_arbitrary_content(parts in proptest::collection::vec(arb_bytes(), 1..4)) {
-        // boundary text inside content is legal as long as it is not a
-        // real boundary; use a boundary that cannot appear
+        // a real sender must not emit content containing a boundary
+        // sequence (verified-marker semantics terminate the part); the
+        // generator respects that wire constraint
+        // simplest sound constraint: content must not contain the
+        // boundary token at all (any position can combine with composer
+        // CRLFs into a marker)
+        let parts: Vec<Vec<u8>> = parts
+            .into_iter()
+            .filter(|p| !p.windows(4).any(|w| w == b"--BB"))
+            .collect();
+        prop_assume!(!parts.is_empty());
         let stream = mime_document(parts.clone());
         let mut parser = MimeParser::new(&stream[..]).unwrap();
         let mut roundtripped = Vec::new();
@@ -220,4 +229,89 @@ proptest! {
 
 fn stored_text_of(out: &OutMessage) -> String {
     out.containers[0].contents[0].text.clone().unwrap()
+}
+
+/// Regression guard for the MIME marker-split fix: a boundary marker cut
+/// in half by the lookahead refill must be resolved, not delivered as
+/// content (found by proptest shrinking against the old parser).
+#[test]
+fn mime_marker_split_across_refill_is_resolved() {
+    // content long enough to span refills, then the marker with its first
+    // 5 bytes at a refill boundary; pad to push the split anywhere
+    for pad in 0..100usize {
+        let content = vec![0x41u8; 9000 + pad];
+        let mut stream = Vec::new();
+        stream.extend_from_slice(b"Content-Type: multipart/mixed; boundary=BB\r\n\r\n");
+        stream.extend_from_slice(
+            b"--BB\r\nContent-Type: application/octet-stream\r\nContent-ID: <p>\r\n\r\n",
+        );
+        stream.extend_from_slice(&content);
+        stream.extend_from_slice(b"\r\n--BB--\r\n");
+        let mut parser = MimeParser::new(&stream[..]).unwrap();
+        let mut part = parser.next_part().unwrap().expect("part");
+        let mut got = Vec::new();
+        part.read_to_end(&mut got).unwrap();
+        drop(part);
+        assert_eq!(got, content, "content corrupted at pad {pad}");
+        assert!(parser.next_part().unwrap().is_none());
+    }
+}
+
+/// A closing boundary at the very end of the stream (no trailing bytes)
+/// terminates the part correctly.
+#[test]
+fn mime_closing_boundary_at_stream_end() {
+    let stream = b"Content-Type: multipart/mixed; boundary=BB\r\n\r\n\
+--BB\r\nContent-Type: text/xml\r\nContent-ID: <x>\r\n\r\ncontent\r\n--BB--";
+    let mut parser = MimeParser::new(&stream[..]).unwrap();
+    let mut part = parser.next_part().unwrap().expect("part");
+    let mut got = Vec::new();
+    part.read_to_end(&mut got).unwrap();
+    assert_eq!(got, b"content");
+    drop(part);
+    assert!(parser.next_part().unwrap().is_none());
+}
+
+/// Binary content containing a full boundary marker followed by
+/// non-boundary bytes stays content (verified-marker semantics).
+#[test]
+fn mime_false_boundary_with_continuation_is_content() {
+    let stream = b"Content-Type: multipart/mixed; boundary=BB\r\n\r\n\
+--BB\r\nContent-Type: text/xml\r\nContent-ID: <x>\r\n\r\nA\r\n--BBx\r\n--BB--\r\n";
+    let mut parser = MimeParser::new(&stream[..]).unwrap();
+    let mut part = parser.next_part().unwrap().expect("part");
+    let mut got = Vec::new();
+    part.read_to_end(&mut got).unwrap();
+    assert_eq!(got, b"A\r\n--BBx");
+    drop(part);
+    assert!(parser.next_part().unwrap().is_none());
+}
+
+/// Regression guard for the closing-delimiter fix: when a refill boundary
+/// cuts inside the closing delimiter's dashes (`--BB--` split after the
+/// first dash of `--`), the marker must still terminate the part - the
+/// single dash is unambiguously the closing delimiter (found by proptest).
+#[test]
+fn mime_closing_delimiter_split_across_refill() {
+    // build a stream where the 8192-byte lookahead boundary lands inside
+    // the closing delimiter's dashes: content padded so that the marker
+    // `\r\n--BB` sits at offset 8191..8197 and the first `-` of `--` is
+    // the last byte of the first 8192-byte window
+    let prelude = b"Content-Type: multipart/mixed; boundary=BB\r\n\r\n\
+--BB\r\nContent-Type: application/octet-stream\r\nContent-ID: <p>\r\n\r\n";
+    // 8192 - prelude.len() - 6 (marker) = content bytes before the marker
+    let before_marker = 8192 - prelude.len() - 6;
+    let content = vec![0x41u8; before_marker];
+    let mut stream = Vec::new();
+    stream.extend_from_slice(prelude);
+    stream.extend_from_slice(&content);
+    stream.extend_from_slice(b"\r\n--BB--\r\n");
+
+    let mut parser = MimeParser::new(&stream[..]).unwrap();
+    let mut part = parser.next_part().unwrap().expect("part");
+    let mut got = Vec::new();
+    part.read_to_end(&mut got).unwrap();
+    drop(part);
+    assert_eq!(got, content, "closing delimiter split corrupted the part");
+    assert!(parser.next_part().unwrap().is_none());
 }

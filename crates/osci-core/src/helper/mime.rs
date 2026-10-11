@@ -345,15 +345,6 @@ impl<R: Read> Read for MimePart<'_, R> {
         let parser = &mut *self.parser;
         loop {
             parser.compact_pending();
-            if parser.pending.is_empty() {
-                // Refill the lookahead directly from the source.
-                let mut chunk = [0u8; 8192];
-                let n = parser.inner.read(&mut chunk)?;
-                if n == 0 {
-                    return Err(format_error("EOS before marker."));
-                }
-                parser.pending.extend_from_slice(&chunk[..n]);
-            }
 
             let data = &parser.pending[parser.pending_pos..];
             if let Some(i) = verified_marker(data, &self.marker) {
@@ -368,16 +359,24 @@ impl<R: Read> Read for MimePart<'_, R> {
                 return Ok(out_len);
             }
 
-            // Deliver everything except a trailing partial marker; keep the
-            // partial in the lookahead until it resolves either way.
-            let deliverable = data.len() - partial_marker_suffix(data, &self.marker);
-            if deliverable == 0 {
-                continue; // need more bytes to resolve the boundary
+            // Deliver everything except a trailing marker fragment; the
+            // fragment stays in the lookahead until it resolves either way.
+            let deliverable = data.len() - marker_holdback(data, &self.marker);
+            if deliverable > 0 {
+                let out_len = deliverable.min(buf.len());
+                buf[..out_len].copy_from_slice(&data[..out_len]);
+                parser.pending_pos += out_len;
+                return Ok(out_len);
             }
-            let out_len = deliverable.min(buf.len());
-            buf[..out_len].copy_from_slice(&data[..out_len]);
-            parser.pending_pos += out_len;
-            return Ok(out_len);
+
+            // Nothing deliverable: the lookahead only holds a (potential)
+            // marker fragment - refill (appending) to resolve it.
+            let mut chunk = [0u8; 8192];
+            let n = parser.inner.read(&mut chunk)?;
+            if n == 0 {
+                return Err(format_error("EOS before marker."));
+            }
+            parser.pending.extend_from_slice(&chunk[..n]);
         }
     }
 }
@@ -399,10 +398,13 @@ impl<R: Read> Drop for MimePart<'_, R> {
     }
 }
 
-/// Longest proper suffix of `data` that is a prefix of `marker` (a marker
-/// split across refill boundaries).
-fn partial_marker_suffix(data: &[u8], marker: &[u8]) -> usize {
-    let max = (data.len() - 1).min(marker.len() - 1);
+/// Longest suffix of `data` that is a prefix of `marker` (a marker split
+/// across refill boundaries, or a full marker at the very end of the
+/// lookahead whose boundary status is not yet decided). An unrestricted
+/// full-length check is safe: a full marker with non-boundary continuation
+/// was already rejected by `verified_marker`.
+fn marker_holdback(data: &[u8], marker: &[u8]) -> usize {
+    let max = data.len().min(marker.len());
     for len in (1..=max).rev() {
         if data[data.len() - len..] == marker[..len] {
             return len;
@@ -412,8 +414,12 @@ fn partial_marker_suffix(data: &[u8], marker: &[u8]) -> usize {
 }
 
 /// Find the marker at a real boundary position: the bytes following the
-/// marker must be `--` (closing boundary) or CRLF/LF (next part boundary).
-/// A marker inside content that continues with anything else is content.
+/// marker must be `-` (the closing delimiter's first dash - our boundary
+/// names never end in `-`, so a single dash can only be `--boundary--`) or
+/// CRLF/LF (next part boundary). A marker inside content that continues
+/// with anything else is content; a marker at the very end of the lookahead
+/// is NOT yet verified (its continuation must arrive first - held back via
+/// `marker_holdback`).
 fn verified_marker(haystack: &[u8], marker: &[u8]) -> Option<usize> {
     if marker.is_empty() || haystack.len() < marker.len() {
         return None;
@@ -423,13 +429,9 @@ fn verified_marker(haystack: &[u8], marker: &[u8]) -> Option<usize> {
         let rel = find_subslice(&haystack[from..], marker)?;
         let at = from + rel;
         let after = &haystack[at + marker.len()..];
-        let is_boundary = after.is_empty()
-            || after.starts_with(b"--")
-            || after.starts_with(b"\r\n")
-            || after.starts_with(b"\n");
+        let is_boundary =
+            after.starts_with(b"-") || after.starts_with(b"\r\n") || after.starts_with(b"\n");
         if is_boundary {
-            // "after is empty" is provisional: resolved by the partial
-            // marker holdback in the next refill
             return Some(at);
         }
         from = at + 1;
