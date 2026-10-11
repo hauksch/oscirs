@@ -1,6 +1,7 @@
-//! OSCI message types (port of `de.osci.osci12.messagetypes` - parsing
-//! side): message recognition, entry fields, feedback, process card
-//! bundles and the body content package.
+//! OSCI message types (port of `de.osci.osci12.messagetypes`): message
+//! recognition and parsing, plus composition (`compose`).
+
+pub mod compose;
 
 use std::collections::BTreeMap;
 

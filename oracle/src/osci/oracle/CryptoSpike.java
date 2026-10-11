@@ -2,6 +2,8 @@ package osci.oracle;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -70,9 +72,121 @@ public final class CryptoSpike {
       case "canonize":
         cmdCanonize();
         break;
+      case "validate":
+        cmdValidate(args.length > 1 ? args[1] : "../testcorpus/xsd");
+        break;
       default:
-        System.err.println("usage: CryptoSpike vectors|verify|unwrap|canonize");
+        System.err.println("usage: CryptoSpike vectors|verify|unwrap|canonize|validate [xsddir]");
         System.exit(2);
+    }
+  }
+
+  /**
+   * Validate the XML from stdin against the XSD corpus. The schemas to
+   * load are taken from the document's xsi:schemaLocation hints plus the
+   * extern set (soap envelope, xmldsig, xmlenc), mirroring the reference
+   * SchemaValidation test.
+   */
+  private static void cmdValidate(String xsdDir) throws Exception {
+    byte[] xml = System.in.readAllBytes();
+    javax.xml.parsers.DocumentBuilderFactory dbf = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+    dbf.setNamespaceAware(true);
+    org.w3c.dom.Document doc = dbf.newDocumentBuilder()
+        .parse(new ByteArrayInputStream(xml));
+    StringBuilder hints = new StringBuilder();
+    org.w3c.dom.NamedNodeMap attrs = doc.getDocumentElement().getAttributes();
+    for ( int i = 0 ; i < attrs.getLength() ; i++ )
+    {
+      org.w3c.dom.Node a = attrs.item(i);
+      if (a.getNodeName().endsWith("schemaLocation"))
+        hints.append(' ').append(a.getNodeValue());
+    }
+    java.io.File dir = new java.io.File(xsdDir);
+    java.io.File extern = new java.io.File(dir, "extern");
+    String[] tokens = hints.toString().trim().split("\\s+");
+    if (tokens.length < 2)
+    {
+      System.err.println("NO_SCHEMA_HINT");
+      System.exit(4);
+    }
+    java.io.File root = new java.io.File(dir, tokens[1]);
+    if (!root.exists())
+    {
+      System.err.println("SCHEMA_MISSING " + tokens[1]);
+      System.exit(4);
+    }
+    javax.xml.validation.SchemaFactory sf =
+        javax.xml.validation.SchemaFactory.newInstance(javax.xml.XMLConstants.W3C_XML_SCHEMA_NS_URI);
+    sf.setFeature("http://apache.org/xml/features/validation/schema-full-checking", false);
+    sf.setResourceResolver(new org.w3c.dom.ls.LSResourceResolver()
+    {
+      @Override
+      public org.w3c.dom.ls.LSInput resolveResource(String type, String namespaceURI,
+                                                    String publicId, String systemId, String baseURI)
+      {
+        if (systemId == null)
+          return null;
+        // catalog.xml maps well-known namespace URIs to corpus files
+        String name = systemId.replaceAll(".*[/\\\\]", "");
+        if (systemId.equals("http://schemas.xmlsoap.org/soap/envelope/"))
+          name = "soap-envelope.xsd";
+        else if (systemId.equals("http://www.w3.org/2000/09/xmldsig#"))
+          name = "xmldsig-core-schema.xsd";
+        else if (systemId.equals("http://www.w3.org/2001/04/xmlenc#"))
+          name = "xenc-schema.xsd";
+        else if (systemId.equals("http://www.w3.org/2009/xmlenc11#"))
+          name = "xenc-schema-11.xsd";
+        else if (systemId.equals("http://www.w3.org/XML/1998/namespace"))
+          name = "xml.xsd";
+        for (java.io.File d : new java.io.File[] {dir, extern})
+        {
+          java.io.File f = new java.io.File(d, name);
+          if (f.exists())
+          {
+            try
+            {
+              final java.io.InputStream in = new java.io.FileInputStream(f);
+              return new org.w3c.dom.ls.LSInput()
+              {
+                @Override public Reader getCharacterStream() { return null; }
+                @Override public void setCharacterStream(Reader r) { }
+                @Override public InputStream getByteStream() { return in; }
+                @Override public void setByteStream(InputStream b) { }
+                @Override public String getStringData() { return null; }
+                @Override public void setStringData(String s) { }
+                @Override public String getSystemId() { return f.toURI().toString(); }
+                @Override public void setSystemId(String s) { }
+                @Override public String getPublicId() { return null; }
+                @Override public void setPublicId(String s) { }
+                @Override public String getBaseURI() { return null; }
+                @Override public void setBaseURI(String s) { }
+                @Override public String getEncoding() { return null; }
+                @Override public void setEncoding(String s) { }
+                @Override public boolean getCertifiedText() { return false; }
+                @Override public void setCertifiedText(boolean c) { }
+              };
+            }
+            catch (java.io.FileNotFoundException e)
+            {
+              return null;
+            }
+          }
+        }
+        return null;
+      }
+    });
+    javax.xml.validation.Schema schema =
+        sf.newSchema(new javax.xml.transform.stream.StreamSource(root));
+    javax.xml.validation.Validator validator = schema.newValidator();
+    try
+    {
+      validator.validate(new javax.xml.transform.stream.StreamSource(new ByteArrayInputStream(xml)));
+      System.out.println("VALID");
+    }
+    catch (org.xml.sax.SAXParseException e)
+    {
+      System.out.println("INVALID line " + e.getLineNumber() + " col " + e.getColumnNumber() + ": " + e.getMessage());
+      System.exit(5);
     }
   }
 

@@ -356,7 +356,7 @@ impl<R: Read> Read for MimePart<'_, R> {
             }
 
             let data = &parser.pending[parser.pending_pos..];
-            if let Some(i) = find_subslice(data, &self.marker) {
+            if let Some(i) = verified_marker(data, &self.marker) {
                 let out_len = buf.len().min(i);
                 buf[..out_len].copy_from_slice(&data[..out_len]);
                 parser.pending_pos += out_len;
@@ -409,6 +409,32 @@ fn partial_marker_suffix(data: &[u8], marker: &[u8]) -> usize {
         }
     }
     0
+}
+
+/// Find the marker at a real boundary position: the bytes following the
+/// marker must be `--` (closing boundary) or CRLF/LF (next part boundary).
+/// A marker inside content that continues with anything else is content.
+fn verified_marker(haystack: &[u8], marker: &[u8]) -> Option<usize> {
+    if marker.is_empty() || haystack.len() < marker.len() {
+        return None;
+    }
+    let mut from = 0;
+    while from + marker.len() <= haystack.len() {
+        let rel = find_subslice(&haystack[from..], marker)?;
+        let at = from + rel;
+        let after = &haystack[at + marker.len()..];
+        let is_boundary = after.is_empty()
+            || after.starts_with(b"--")
+            || after.starts_with(b"\r\n")
+            || after.starts_with(b"\n");
+        if is_boundary {
+            // "after is empty" is provisional: resolved by the partial
+            // marker holdback in the next refill
+            return Some(at);
+        }
+        from = at + 1;
+    }
+    None
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
