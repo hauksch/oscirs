@@ -84,6 +84,26 @@ impl Dialog {
     /// the next challenge.
     pub fn check_control_block(&mut self, response: &ControlBlock) -> Result<(), DialogError> {
         let detail = |what: &str| DialogError::WrongControlBlock(what.to_string());
+        // The adopted values are composed into the next (signed) request -
+        // reject anything that is not well-formed protocol data before it
+        // gets there, in addition to the composer-side escaping.
+        let well_formed = |value: &str| {
+            value.len() <= 256
+                && value
+                    .chars()
+                    .all(|c| c.is_ascii_graphic() && !matches!(c, '"' | '<' | '>' | '&'))
+        };
+        for (what, value) in [
+            ("conversation id", &response.conversation_id),
+            ("challenge", &response.challenge),
+            ("response", &response.response),
+        ] {
+            if let Some(value) = value
+                && !well_formed(value)
+            {
+                return Err(detail(&format!("malformed {what} in response")));
+            }
+        }
         if let Some(challenge) = &self.control_block.challenge
             && response.response.as_deref() != Some(challenge.as_str())
         {
@@ -152,7 +172,8 @@ impl Dialog {
             None => xml,
         };
 
-        let request_stream = replace_xml_part(&stream, &signed_xml, boundary);
+        let request_stream = replace_xml_part(&stream, &signed_xml)
+            .map_err(|e| DialogError::Composition(e.to_string()))?;
         let response_bytes = self
             .transport
             .send(&request_stream)
@@ -213,12 +234,16 @@ fn xml_part(stream: &[u8]) -> Option<String> {
 }
 
 /// Rebuild the MIME stream with a replaced XML part (used after signing).
-fn replace_xml_part(stream: &[u8], xml: &str, _boundary: &str) -> Vec<u8> {
-    let marker = b"Content-ID: <osci@message>\r\n\r\n";
+fn replace_xml_part(stream: &[u8], xml: &str) -> Result<Vec<u8>, DialogError> {
+    let marker = format!(
+        "Content-ID: <{}>\r\n\r\n",
+        osci_core::message::compose::MESSAGE_CONTENT_ID
+    );
+    let marker = marker.as_bytes();
     let xml_start = stream
         .windows(marker.len())
         .position(|w| w == marker)
-        .expect("message part header present")
+        .ok_or_else(|| DialogError::Composition("message part header missing".into()))?
         + marker.len();
     // the XML part runs to the next MIME boundary, searched FROM the XML
     // start (scanning from 0 would hit the preamble boundary)
@@ -230,7 +255,7 @@ fn replace_xml_part(stream: &[u8], xml: &str, _boundary: &str) -> Vec<u8> {
     out.extend_from_slice(&stream[..xml_start]);
     out.extend_from_slice(xml.as_bytes());
     out.extend_from_slice(&stream[xml_end..]);
-    out
+    Ok(out)
 }
 
 /// Convenience: the first feedback entry of a response.

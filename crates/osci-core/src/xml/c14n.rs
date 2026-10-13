@@ -32,7 +32,7 @@ use sha3::{Sha3_256, Sha3_384, Sha3_512};
 
 use super::parser;
 use super::writer::{escape_attr, escape_text};
-use super::{Document, Element, Node};
+use super::{Document, Element, Node, XMLDSIG_NS};
 use super::{OSCI_NS, SOAP_ENVELOPE_NS};
 
 pub const DIGEST_SHA1: &str = "http://www.w3.org/2000/09/xmldsig#sha1";
@@ -67,7 +67,14 @@ pub struct Canonicalization {
     pub canonical_regions: HashMap<String, Vec<u8>>,
     /// Canonical SignedInfo byte ranges in document order; `None` marks
     /// the transport-signature slot when a message carries none.
+    /// Java-parity flat vector (every direct-child-of-a-Signature
+    /// SignedInfo captured, placeholder for content-only signatures).
     pub signed_infos: Vec<Option<Vec<u8>>>,
+    /// One capture slot per `ds:Signature` element in document order -
+    /// the verification pipeline's securely-bound pairing. `None` when
+    /// that signature carries no SignedInfo, or carries one that is not a
+    /// direct child (decoys are never captured).
+    pub signature_captures: Vec<Option<Vec<u8>>>,
     /// Canonical SignedProperties strings (content-container signatures).
     pub signed_properties: Vec<String>,
     /// Namespace attribute strings of ContentContainer elements.
@@ -107,6 +114,9 @@ pub fn canonicalize_with(doc: &Document, check_ids: bool) -> Result<Canonicaliza
         current_id: None,
         digest_region: None,
         check_ids,
+        signature_depths: Vec::new(),
+        signature_captures: Vec::new(),
+        gated_si: None,
     };
 
     // Document-level processing instructions.
@@ -132,6 +142,7 @@ pub fn canonicalize_with(doc: &Document, check_ids: bool) -> Result<Canonicaliza
         digest_values: walker.digest_values,
         canonical_regions: walker.canonical_regions,
         signed_infos: walker.signed_infos,
+        signature_captures: walker.signature_captures,
         signed_properties: walker.signed_properties,
         coco_ns: walker.coco_ns,
     })
@@ -186,6 +197,15 @@ struct Walker {
     /// (start offset in `out`, digest URI, key)
     digest_region: Option<(usize, String, String)>,
     check_ids: bool,
+    /// Depths of open `ds:Signature` elements (document order).
+    signature_depths: Vec<usize>,
+    /// One capture slot per `ds:Signature` element in document order;
+    /// `None` when that signature carries no (direct-child) SignedInfo.
+    /// SignedInfo elements elsewhere in the document are NEVER captured,
+    /// so decoys cannot shift the positional pairing.
+    signature_captures: Vec<Option<Vec<u8>>>,
+    /// Index into `signature_captures` while a gated SignedInfo is open.
+    gated_si: Option<usize>,
 }
 
 impl Walker {
@@ -303,6 +323,15 @@ impl Walker {
             self.soap_prefix = Some(found.unwrap_or_default());
         }
 
+        // Track ds:Signature elements: each gets a capture slot, and only
+        // their direct-child SignedInfos are captured (A1).
+        let sig_element = element.local == "Signature"
+            && element_uri(element, &parent_bindings).as_deref() == Some(XMLDSIG_NS);
+        if sig_element {
+            self.signature_captures.push(None);
+            self.signature_depths.push(self.element_depth);
+        }
+
         if qname == self.soap_envelope_qname("Header") {
             if !self.header_already_found {
                 self.inside_header = true;
@@ -310,7 +339,7 @@ impl Walker {
             } else {
                 return Err(C14nError::Malformed("duplicate SOAP Header".into()));
             }
-        } else if self.inside_header && element.local == "ControlBlock" {
+        } else if self.inside_header && self.element_depth == 3 && element.local == "ControlBlock" {
             signed_element = true;
             self.control_block_id = format!("#{}", element.id_attr().unwrap_or_default());
             self.start_capture();
@@ -336,10 +365,19 @@ impl Walker {
         {
             signed_element = true;
             read_ns = true;
-            self.start_capture();
-            if self.inside_header && element.local == "SignedInfo" {
-                self.inside_transport_signed_info = true;
+            // A1: gate SignedInfo captures to direct children of a
+            // ds:Signature element - decoy or stripped SignedInfos
+            // elsewhere in the document never get a capture slot.
+            let gated_si = element.local == "SignedInfo"
+                && self.signature_depths.last() == Some(&(self.element_depth - 1));
+            if gated_si {
+                self.gated_si = Some(self.signature_captures.len() - 1);
+                self.start_capture();
+                if self.inside_header {
+                    self.inside_transport_signed_info = true;
+                }
             } else if element.local == "SignedProperties" {
+                self.start_capture();
                 self.inside_container_signature_props = true;
             }
         } else if self.inside_transport_signed_info {
@@ -417,7 +455,7 @@ impl Walker {
                 block.extend_from_slice(b"\"");
             }
             out_map = tmp_map;
-            if element.local == "SignedInfo" || self.inside_container_signature_props {
+            if self.gated_si.is_some() || self.inside_container_signature_props {
                 self.capture_only(&block);
             } else {
                 self.coco_ns
@@ -441,36 +479,44 @@ impl Walker {
         self.write_through(b">");
 
         if element.local == "SignedInfo" {
-            if !self.inside_header && self.signed_infos.is_empty() {
-                self.signed_infos.push(None);
-            }
-            let captured = self.end_capture();
-            self.signed_infos.push(Some(captured));
-            if self.inside_transport_signed_info {
-                self.inside_transport_signed_info = false;
-                if let Some(algo) = self.transport_digest_methods.get(&self.control_block_id) {
-                    let algo = algo.clone();
-                    let bytes = self.control_block.clone().unwrap_or_default();
-                    if self.digest_values.contains_key(&self.control_block_id) {
-                        return Err(C14nError::Malformed(format!(
-                            "duplicate digest entry {}",
-                            self.control_block_id
-                        )));
+            if let Some(sig_idx) = self.gated_si.take() {
+                // Java-parity placeholder: when the first captured
+                // SignedInfo is content-level, the transport slot is
+                // recorded as absent (matching the reference's vector).
+                if !self.inside_header && self.signed_infos.is_empty() {
+                    self.signed_infos.push(None);
+                }
+                let captured = self.end_capture();
+                self.signed_infos.push(Some(captured.clone()));
+                self.signature_captures[sig_idx] = Some(captured);
+                if self.inside_transport_signed_info {
+                    self.inside_transport_signed_info = false;
+                    if let Some(algo) = self.transport_digest_methods.get(&self.control_block_id) {
+                        let algo = algo.clone();
+                        let bytes = self.control_block.clone().unwrap_or_default();
+                        if self.digest_values.contains_key(&self.control_block_id) {
+                            return Err(C14nError::Malformed(format!(
+                                "duplicate digest entry {}",
+                                self.control_block_id
+                            )));
+                        }
+                        if let Some(value) = digest_bytes(&algo, &bytes) {
+                            self.digest_values
+                                .insert(self.control_block_id.clone(), value);
+                        }
+                        self.canonical_regions
+                            .insert(self.control_block_id.clone(), bytes);
                     }
-                    if let Some(value) = digest_bytes(&algo, &bytes) {
-                        self.digest_values
-                            .insert(self.control_block_id.clone(), value);
-                    }
-                    self.canonical_regions
-                        .insert(self.control_block_id.clone(), bytes);
                 }
             }
+            // Ungated SignedInfo (decoy): output already written, no
+            // capture - it cannot shift the verification pairing.
         } else if self.inside_container_signature_props && element.local == "SignedProperties" {
             let captured = self.end_capture();
             self.signed_properties
                 .push(String::from_utf8_lossy(&captured).into_owned());
             self.inside_container_signature_props = false;
-        } else if self.inside_header && element.local == "ControlBlock" {
+        } else if self.inside_header && self.element_depth == 2 && element.local == "ControlBlock" {
             self.control_block = Some(self.end_capture());
             self.current_id = None;
         } else if (self.inside_header
@@ -496,6 +542,15 @@ impl Walker {
                     .insert(key, self.out[start..].to_vec());
             }
             self.current_id = None;
+        }
+
+        // Pop the signature tracking while the element's own bindings are
+        // still on the stack (needed to resolve its prefix).
+        let sig_element = element.local == "Signature"
+            && element_uri(element, self.ns_stack.last().unwrap_or(&BTreeMap::new())).as_deref()
+                == Some(XMLDSIG_NS);
+        if sig_element {
+            self.signature_depths.pop();
         }
 
         self.ns_stack.pop();

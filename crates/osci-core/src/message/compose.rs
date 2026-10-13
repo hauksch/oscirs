@@ -159,8 +159,11 @@ fn entry_inner_xml(msg: &OutMessage, kind: MessageType) -> String {
             // SelectionRuleFetchType: a choice of MessageId or date
             // elements); the composed rule nests the message id
             let rule = msg.selection_rule.clone().unwrap_or_default();
+            let mut escaped = Vec::new();
+            escape_text(&rule, &mut escaped).ok();
             inner.push_str(&format!(
-                "<osci:SelectionRule><osci:MessageId>{rule}</osci:MessageId></osci:SelectionRule>"
+                "<osci:SelectionRule><osci:MessageId>{}</osci:MessageId></osci:SelectionRule>",
+                String::from_utf8_lossy(&escaped)
             ));
             // fetchDelivery's entry contains ONLY the SelectionRule
             // (fetchDeliveryType extends the empty header block template)
@@ -227,7 +230,12 @@ fn bundles_xml(bundles: &[OutProcessCardBundle]) -> String {
     for bundle in bundles {
         xml.push_str("<osci:ProcessCardBundle>");
         if let Some(id) = &bundle.message_id {
-            xml.push_str(&format!("<osci:MessageId>{id}</osci:MessageId>"));
+            let mut escaped = Vec::new();
+            escape_text(id, &mut escaped).ok();
+            xml.push_str(&format!(
+                "<osci:MessageId>{}</osci:MessageId>",
+                String::from_utf8_lossy(&escaped)
+            ));
         }
         for card in &bundle.process_cards {
             let recent = card
@@ -251,7 +259,12 @@ fn bundles_xml(bundles: &[OutProcessCardBundle]) -> String {
                 }
             }
             if let Some(subject) = &card.subject {
-                xml.push_str(&format!("<osci:Subject>{subject}</osci:Subject>"));
+                let mut escaped = Vec::new();
+                escape_text(subject, &mut escaped).ok();
+                xml.push_str(&format!(
+                    "<osci:Subject>{}</osci:Subject>",
+                    String::from_utf8_lossy(&escaped)
+                ));
             }
             xml.push_str("</osci:ProcessCard>");
         }

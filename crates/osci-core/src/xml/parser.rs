@@ -19,6 +19,10 @@ use quick_xml::events::Event;
 
 use super::{Document, Element, Node};
 
+/// Maximum accepted element nesting depth (OSCI messages are shallow;
+/// hostile deep nesting would overflow the stack in recursive walks).
+const MAX_ELEMENT_DEPTH: usize = 256;
+
 #[derive(Debug, thiserror::Error)]
 pub enum XmlError {
     #[error("malformed XML: {0}")]
@@ -57,6 +61,14 @@ pub fn parse(input: &str) -> Result<Document, XmlError> {
             Ok(Event::Start(e)) => {
                 if stack.is_empty() && !root_taken {
                     doc.prolog = input[..prev_end].to_string();
+                }
+                // Depth cap: deeply nested documents overflow the stack in
+                // the recursive tree drop and canonicalization walks
+                // (uncatchable DoS).
+                if stack.len() >= MAX_ELEMENT_DEPTH {
+                    return Err(XmlError::Malformed(format!(
+                        "element nesting exceeds {MAX_ELEMENT_DEPTH}"
+                    )));
                 }
                 flush_text(&mut stack, &mut pending_text);
                 let element = start_element(&e, &ns_stack)?;

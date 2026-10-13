@@ -68,19 +68,19 @@ fn calc_sym_enc_length_matches_streams() {
                 "{cipher_uri} at {i} bytes"
             );
             if cipher_uri.ends_with("-gcm") {
-                // 16-byte IV variant
+                // 16-byte GCM IVs are rejected on encrypt (decrypt only
+                // reads 12) - the writer must say so; the calc formula for
+                // 16 stays as pure math parity with the Java method.
                 let mut sink = Vec::new();
                 let iv = [7u8; 16];
-                {
-                    let mut w =
-                        EncryptWriter::new(&mut sink, cipher, &key, Some(&iv)).expect("writer");
-                    w.write_all(&data).unwrap();
-                    w.finish().unwrap();
-                }
+                assert!(
+                    EncryptWriter::new(&mut sink, cipher, &key, Some(&iv)).is_err(),
+                    "{cipher_uri}: 16-byte IV must be rejected at {i} bytes"
+                );
                 assert_eq!(
                     calc_sym_enc_length(i as u64, cipher_uri, 16),
-                    Some(sink.len() as u64),
-                    "{cipher_uri} (IV 16) at {i} bytes"
+                    Some(32 + i as u64),
+                    "{cipher_uri} (IV 16) formula at {i} bytes"
                 );
             }
             data.push((i % 251) as u8);

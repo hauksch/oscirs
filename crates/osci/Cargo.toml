@@ -7,6 +7,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+base64 = "0.23.1"
 osci-core = { path = "../osci-core" }
 osci-crypto = { path = "../osci-crypto" }
 osci-transport = { path = "../osci-transport" }

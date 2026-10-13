@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 
 use crate::helper::base64;
+use crate::xml::writer::{escape_attr, escape_text};
 use crate::xml::{Document, Element, SOAP_ENVELOPE_NS};
 
 pub const OSCI_NS: &str = "http://www.osci.de/2002/04/osci";
@@ -373,7 +374,12 @@ impl<W: std::io::Write> Composer<W> {
             HeaderEntry::DesiredLanguages { languages } => {
                 write!(
                     self.out,
-                    "<osci:DesiredLanguages{NS_BLOCK} Id=\"desiredlanguages\" LanguagesList=\"{languages}\" soap:actor=\"{ACTOR_NEXT}\" soap:mustUnderstand=\"1\"></osci:DesiredLanguages>"
+                    "<osci:DesiredLanguages{NS_BLOCK} Id=\"desiredlanguages\" LanguagesList=\""
+                )?;
+                escape_attr(languages, &mut self.out)?;
+                write!(
+                    self.out,
+                    "\" soap:actor=\"{ACTOR_NEXT}\" soap:mustUnderstand=\"1\"></osci:DesiredLanguages>"
                 )
             }
             HeaderEntry::QualityOfTimestamp {
@@ -431,9 +437,15 @@ impl<W: std::io::Write> Composer<W> {
     }
 
     fn control_block(&mut self, cb: &ControlBlock) -> std::io::Result<()> {
+        // Every value is escaped: on the wire these may originate from a
+        // hostile peer (the dialog adopts challenge/response/conversation
+        // id from responses) - unescaped interpolation would smuggle XML
+        // into the next signed request.
         write!(self.out, "<osci:ControlBlock{NS_BLOCK}")?;
         if let Some(conversation_id) = &cb.conversation_id {
-            write!(self.out, " ConversationId=\"{conversation_id}\"")?;
+            write!(self.out, " ConversationId=\"")?;
+            escape_attr(conversation_id, &mut self.out)?;
+            write!(self.out, "\"")?;
         }
         write!(self.out, " Id=\"controlblock\"")?;
         if let Some(sequence) = cb.sequence_number {
@@ -444,10 +456,14 @@ impl<W: std::io::Write> Composer<W> {
             " soap:actor=\"{ACTOR_NEXT}\" soap:mustUnderstand=\"1\">"
         )?;
         if let Some(response) = &cb.response {
-            write!(self.out, "<osci:Response>{response}</osci:Response>")?;
+            write!(self.out, "<osci:Response>")?;
+            escape_text(response, &mut self.out)?;
+            write!(self.out, "</osci:Response>")?;
         }
         if let Some(challenge) = &cb.challenge {
-            write!(self.out, "<osci:Challenge>{challenge}</osci:Challenge>")?;
+            write!(self.out, "<osci:Challenge>")?;
+            escape_text(challenge, &mut self.out)?;
+            write!(self.out, "</osci:Challenge>")?;
         }
         write!(self.out, "</osci:ControlBlock>")
     }
@@ -458,12 +474,9 @@ impl<W: std::io::Write> Composer<W> {
         use_: CertUse,
         entry: &CertEntry,
     ) -> std::io::Result<()> {
-        write!(
-            self.out,
-            "<osci:{} Id=\"{}\"><ds:X509Data><ds:X509Certificate>",
-            role.element_name(use_),
-            entry.id
-        )?;
+        write!(self.out, "<osci:{} Id=\"", role.element_name(use_))?;
+        escape_attr(&entry.id, &mut self.out)?;
+        write!(self.out, "\"><ds:X509Data><ds:X509Certificate>")?;
         self.out.write_all(base64::encode(&entry.der).as_bytes())?;
         write!(
             self.out,
@@ -494,10 +507,11 @@ impl<W: std::io::Write> Composer<W> {
         if !fd.features.is_empty() {
             write!(self.out, "<osci2017:SupportedFeatures>")?;
             for (key, version) in &fd.features {
-                write!(
-                    self.out,
-                    "<osci2017:Feature Key=\"{key}\" Version=\"{version}\"></osci2017:Feature>"
-                )?;
+                write!(self.out, "<osci2017:Feature Key=\"")?;
+                escape_attr(key, &mut self.out)?;
+                write!(self.out, "\" Version=\"")?;
+                escape_attr(version, &mut self.out)?;
+                write!(self.out, "\"></osci2017:Feature>")?;
             }
             write!(self.out, "</osci2017:SupportedFeatures>")?;
         }

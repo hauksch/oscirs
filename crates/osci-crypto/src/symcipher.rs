@@ -425,11 +425,13 @@ impl<'a, W: Write> EncryptWriter<'a, W> {
     ) -> Result<Self, CryptoError> {
         let iv_len = match (cipher, iv) {
             (SymCipher::AesGcm { .. }, Some(custom)) => {
-                // Java SymCipherOutputStream accepts 12 or 16 byte IVs
+                // GCM IVs are 12 bytes only: the decrypt side always reads
+                // 12 (the pre-Korrigenda-7 16-byte IV is not supported, so
+                // accepting it on encrypt would produce unreadable output).
                 let len = custom.len();
-                if len != 12 && len != 16 {
+                if len != 12 {
                     return Err(CryptoError::Encryption(format!(
-                        "wrong GCM IV length {len}"
+                        "wrong GCM IV length {len} (only 12 is supported)"
                     )));
                 }
                 len

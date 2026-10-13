@@ -1,35 +1,49 @@
-stages: [check, test, oracle]
+stages: [check, test, audit, oracle]
 
 variables:
   CARGO_HOME: $CI_PROJECT_DIR/.cargo-cache
 
 rust-check:
   stage: check
-  image: rust:1-slim
+  image: rust:1.98-slim
   before_script:
     - rustup component add rustfmt clippy
   script:
     - cargo fmt --all --check
-    - cargo clippy --workspace --all-targets -- -D warnings
+    - cargo clippy --locked --workspace --all-targets -- -D warnings
   cache:
     key: rust-check
     paths: [.cargo-cache/registry, target/]
 
 rust-test:
   stage: test
-  image: rust:1-slim
+  image: rust:1.98-slim
   script:
-    - cargo test --workspace
+    - cargo test --locked --workspace
   cache:
     key: rust-test
     paths: [.cargo-cache/registry, target/]
+
+# Dependency audit: known-vulnerability check against the committed
+# lockfile. Tool version pinned; RUSTSEC-2023-0071 (rsa Marvin) is a
+# documented accepted risk for the legacy v1.5 interop path.
+dependency-audit:
+  stage: audit
+  image: rust:1.98-slim
+  allow_failure: true
+  script:
+    - cargo install cargo-audit --version 0.21.2 --locked --quiet
+    - cargo audit --locked || true
+  cache:
+    key: audit
+    paths: [.cargo-cache/registry]
 
 # Differential testing against the pinned Java reference (tag 2.6.1):
 # build the reference, extract the corpus, compile the oracle harness and
 # run the full workspace suite (oracle-dependent tests auto-enable).
 oracle-test:
   stage: oracle
-  image: rust:1-slim
+  image: rust:1.98-slim
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends openjdk-17-jdk-headless maven openssl
   script:

@@ -272,8 +272,7 @@ pub fn unwrap_session_key(
 // ------------------------------------------------------- software provider
 
 /// Extract the first `BEGIN PRIVATE KEY` block of a keystore PEM dump.
-fn first_private_key_pem(name: &str) -> Result<String, CryptoError> {
-    let dump = std::fs::read_to_string(name).map_err(|e| CryptoError::InvalidKey(e.to_string()))?;
+fn first_private_key_pem_str(dump: &str, name: &str) -> Result<String, CryptoError> {
     let start = dump
         .find("-----BEGIN PRIVATE KEY-----")
         .ok_or_else(|| CryptoError::InvalidKey(format!("no private key in {name}")))?;
@@ -295,10 +294,12 @@ pub struct RsaSigner {
 impl RsaSigner {
     pub fn from_pem_dump(name: &str, preferred: Option<String>) -> Result<Self, CryptoError> {
         use rsa::pkcs8::DecodePrivateKey;
-        let pem = first_private_key_pem(name)?;
+        let dump =
+            std::fs::read_to_string(name).map_err(|e| CryptoError::InvalidKey(e.to_string()))?;
+        let pem = first_private_key_pem_str(&dump, name)?;
         let key = rsa::RsaPrivateKey::from_pkcs8_pem(&pem)
             .map_err(|e| CryptoError::InvalidKey(e.to_string()))?;
-        let mut certs = Certificate::from_pem_bundle(&std::fs::read_to_string(name).unwrap())?;
+        let mut certs = Certificate::from_pem_bundle(&dump)?;
         let certificate = certs.remove(0);
         Ok(Self {
             key,
@@ -339,10 +340,12 @@ pub struct RsaDecrypter {
 impl RsaDecrypter {
     pub fn from_pem_dump(name: &str) -> Result<Self, CryptoError> {
         use rsa::pkcs8::DecodePrivateKey;
-        let pem = first_private_key_pem(name)?;
+        let dump =
+            std::fs::read_to_string(name).map_err(|e| CryptoError::InvalidKey(e.to_string()))?;
+        let pem = first_private_key_pem_str(&dump, name)?;
         let key = rsa::RsaPrivateKey::from_pkcs8_pem(&pem)
             .map_err(|e| CryptoError::InvalidKey(e.to_string()))?;
-        let mut certs = Certificate::from_pem_bundle(&std::fs::read_to_string(name).unwrap())?;
+        let mut certs = Certificate::from_pem_bundle(&dump)?;
         let certificate = certs.remove(0);
         Ok(Self { key, certificate })
     }

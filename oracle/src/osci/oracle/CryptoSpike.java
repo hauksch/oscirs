@@ -94,6 +94,11 @@ public final class CryptoSpike {
     byte[] xml = System.in.readAllBytes();
     javax.xml.parsers.DocumentBuilderFactory dbf = javax.xml.parsers.DocumentBuilderFactory.newInstance();
     dbf.setNamespaceAware(true);
+    // The XML comes from fixture corpora that fuzzing and differential
+    // testing mutate - harden against XXE (the Rust parser under test is
+    // XXE-safe; the oracle must not be the soft target).
+    dbf.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true);
+    dbf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
     org.w3c.dom.Document doc = dbf.newDocumentBuilder()
         .parse(new ByteArrayInputStream(xml));
     StringBuilder hints = new StringBuilder();

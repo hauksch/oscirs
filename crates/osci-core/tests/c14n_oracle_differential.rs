@@ -122,6 +122,10 @@ fn first_divergence(a: &[u8], b: &[u8]) -> String {
 
 #[test]
 fn canonical_output_matches_java_oracle() {
+    if !workspace_root().join("oracle/build/classpath.txt").exists() {
+        eprintln!("skipping: java oracle not built");
+        return;
+    }
     let dir = common::corpus().join("messages");
     let mut compared = 0usize;
 

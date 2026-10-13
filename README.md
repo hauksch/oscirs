@@ -64,7 +64,7 @@ Every layer is gated against the pinned reference:
 - [x] SwapBuffer (RAM → AES-GCM-encrypted temp file, repeatable reads)
 - [x] XXE-safe XML tree parser (DOCTYPE rejected, Xerces normalization)
 - [x] Restricted C14N 1.0 canonicalizer with inline digesting (byte-exact vs reference)
-- [x] Signer/Decrypter SPI + software RSA (PSS/v1.5) + ECDSA raw r‖s
+- [x] Signer/Decrypter SPI + software RSA (PSS/v1.5); ECDSA raw r‖s sign primitives only (not wired into message verification)
 - [x] Algorithm registry (all digests incl. SHA-3/RIPEMD-160, AES-GCM/CBC, 3DES, OAEP/v1.5)
 - [x] Weak-key policy (all `TestCrypto` dates)
 - [x] Streaming symmetric ciphers (`[IV][ct]` wire format, tag verification)
@@ -75,7 +75,7 @@ Every layer is gated against the pinned reference:
 - [x] MessageMetaData extension header
 - [x] Transport + content signature composition (two-pass) and verification
 - [x] EncryptedData decryption pipelines
-- [x] Dialog state machine (challenge/response, sequence, conversation)
+- [x] Dialog state machine (challenge/response, conversation; sequence is echo-compared only)
 - [x] Loopback + HTTP transports
 - [x] Sample program
 - [ ] RSA-PSS P-384 ECDSA signing path (P-256 verified; P-384 sign trait ready)

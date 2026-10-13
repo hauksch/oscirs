@@ -1,19 +1,17 @@
-# Rust
-/target
-**/*.rs.bk
 
-# Java oracle build artifacts
-oracle/build/
-
-# Local toolchain (JDK, Maven) and reference clone - fetched via scripts/
-/tools/
-/reference/
-
-# Maven local repo inside reference builds
 **/*.class
-
 # Editors / agent tooling
+fuzz/target
 .idea/
+# Java oracle build artifacts
+# Local toolchain (JDK, Maven) and reference clone - fetched via scripts/
+# Maven local repo inside reference builds
+oracle/build/
+/reference/
+**/*.rs.bk
+# Rust
+*.swp
+/target
+/tools/
 .vscode/
 .zcode/
-*.swp

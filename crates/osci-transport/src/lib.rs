@@ -57,17 +57,3 @@ impl Transport for LoopbackTransport {
         self.intermediary.lock().unwrap().handle(message)
     }
 }
-
-/// Error collector helper for tests: FailReply replies with a SOAP-level
-/// OSCI feedback code instead of a valid response.
-pub struct TransportErrorCollector {
-    pub failures: Mutex<Vec<String>>,
-}
-
-impl Default for TransportErrorCollector {
-    fn default() -> Self {
-        Self {
-            failures: Mutex::new(Vec::new()),
-        }
-    }
-}

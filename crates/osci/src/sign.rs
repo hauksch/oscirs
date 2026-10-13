@@ -138,10 +138,17 @@ pub fn sign_message_xml(xml: &str, params: &SignParams<'_>) -> Result<String, Si
         .map_err(|e| SignError::Signing(e.to_string()))?;
 
     let encoded = base64::encode(&signature);
-    Ok(injected.replace(
+    // single occurrence: the placeholder is written by this function and
+    // must be unique in the document
+    let replaced = injected.replacen(
         "<ds:SignatureValue>PHMBOLFU5fQ==</ds:SignatureValue>",
         &format!("<ds:SignatureValue>{encoded}</ds:SignatureValue>"),
-    ))
+        1,
+    );
+    if replaced == injected {
+        return Err(SignError::Signing("placeholder not found".into()));
+    }
+    Ok(replaced)
 }
 
 fn build_signature_xml(

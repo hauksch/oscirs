@@ -166,6 +166,9 @@ impl SwapBuffer {
         }
     }
 
+    /// Set whether spill files are encrypted. NB: this must be decided
+    /// before the first spill - a flag flip after the buffer swapped to
+    /// disk leaves the already-written file in its previous state.
     pub fn set_confidential(&mut self, confidential: bool) {
         self.confidential = confidential;
     }
@@ -286,6 +289,18 @@ impl SwapBuffer {
             std::process::id(),
             rand::thread_rng().next_u32()
         ));
+        // 0600: the spill file may hold plaintext (non-confidential mode)
+        // and must not be readable by other users on multi-user hosts.
+        #[cfg(unix)]
+        let file = {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&path)?
+        };
+        #[cfg(not(unix))]
         let file = File::create_new(&path)?;
         let writer = BufWriter::new(file);
         self.writer = Some(if self.confidential {
@@ -297,10 +312,16 @@ impl SwapBuffer {
         } else {
             WriterState::Plain { writer, path }
         });
-        self.write_through(&buffered)
+        self.write_through_counted(&buffered, false)
     }
 
     fn write_through(&mut self, buf: &[u8]) -> io::Result<()> {
+        self.write_through_counted(buf, true)
+    }
+
+    /// `count` is false when replaying already-counted bytes during a
+    /// spill, so `length()` does not double-count the swapped prefix.
+    fn write_through_counted(&mut self, buf: &[u8], count: bool) -> io::Result<()> {
         match self.writer.as_mut().expect("writer present while writing") {
             WriterState::Memory(data) => data.extend_from_slice(buf),
             WriterState::Plain { writer, .. } => writer.write_all(buf)?,
@@ -312,7 +333,9 @@ impl SwapBuffer {
                 }
             }
         }
-        self.byte_count += buf.len() as u64;
+        if count {
+            self.byte_count += buf.len() as u64;
+        }
         Ok(())
     }
 }

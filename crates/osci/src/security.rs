@@ -31,6 +31,10 @@ pub enum SecurityError {
     Canonicalization(String),
     #[error("no signature over the message")]
     NoSignatures,
+    #[error("signature structure mismatch: {0}")]
+    Structure(String),
+    #[error("decryption: {0}")]
+    Decrypt(String),
 }
 
 /// Result of one `ds:Reference` digest check.
@@ -120,30 +124,21 @@ impl SignatureView<'_> {
         // RetrievalMethod sits inside ds:KeyInfo, SignatureMethod inside
         // ds:SignedInfo, SignatureValue next to SignedInfo: all nested,
         // none direct children of ds:Signature
-        let mut found: Option<String> = None;
         match name {
-            "cert-id" => find_descendant(self.0, "RetrievalMethod", &mut |e| {
-                found = e
-                    .attr("URI")
-                    .and_then(|u| u.strip_prefix('#'))
-                    .map(str::to_string);
-            }),
-            "method" => find_descendant(self.0, "SignatureMethod", &mut |e| {
-                found = e.attr("Algorithm").map(str::to_string);
-            }),
-            "value" => find_descendant(self.0, "SignatureValue", &mut |e| {
-                found = Some(e.text());
-            }),
-            _ => {}
+            "cert-id" => find_first_descendant(self.0, "RetrievalMethod")?
+                .attr("URI")
+                .and_then(|u| u.strip_prefix('#'))
+                .map(str::to_string),
+            "method" => find_first_descendant(self.0, "SignatureMethod")?
+                .attr("Algorithm")
+                .map(str::to_string),
+            "value" => Some(find_first_descendant(self.0, "SignatureValue")?.text()),
+            _ => None,
         }
-        let _ = &mut found;
-        found
     }
 
     fn references(&self) -> Vec<&Element> {
-        self.0
-            .elements()
-            .find(|e| e.local == "SignedInfo")
+        find_first_descendant(self.0, "SignedInfo")
             .map(|si| si.elements().filter(|e| e.local == "Reference").collect())
             .unwrap_or_default()
     }
@@ -153,6 +148,7 @@ fn check_reference(
     reference: &Element,
     doc: &Document,
     canon: &Canonicalization,
+    certs: &HashMap<String, osci_crypto::Certificate>,
     attachments: &[(String, Vec<u8>)],
 ) -> ReferenceResult {
     let uri = reference.attr("URI").unwrap_or_default().to_string();
@@ -162,69 +158,124 @@ fn check_reference(
         .and_then(|e| e.attr("Algorithm"))
         .unwrap_or_default()
         .to_string();
+    let fail = |uri: String, algorithm: String| ReferenceResult {
+        uri,
+        algorithm,
+        checked: Some(false),
+    };
+    let skip = |uri: String, algorithm: String| ReferenceResult {
+        uri,
+        algorithm,
+        checked: None,
+    };
+
+    // Missing or malformed DigestValue: fail closed.
     let Some(expected) = reference
         .elements()
         .find(|e| e.local == "DigestValue")
         .map(|e| e.text())
         .and_then(|v| base64::decode(v.trim()).ok())
     else {
-        return ReferenceResult {
-            uri,
-            algorithm,
-            checked: None,
-        };
+        return fail(uri, algorithm);
     };
 
-    let input: Option<Vec<u8>> = if let Some(id) = uri.strip_prefix('#') {
-        if canon.canonical_regions.contains_key(&uri) {
-            // digest the canonical region with THIS reference's declared
-            // algorithm (the digest map picks its method at element start
-            // and cannot see signatures appearing later in the document)
-            let checked = digest_bytes(&algorithm, canon.canonical_regions.get(&uri).unwrap())
-                .map(|actual| actual == expected);
-            return ReferenceResult {
-                uri,
-                algorithm,
-                checked,
+    if let Some(id) = uri.strip_prefix('#') {
+        // Digest the canonical region with THIS reference's declared
+        // algorithm (the digest map picks its method at element start and
+        // cannot see signatures appearing later in the document). An
+        // unsupported algorithm fails closed.
+        if let Some(region) = canon.canonical_regions.get(&uri) {
+            return match digest_bytes(&algorithm, region) {
+                Some(actual) => ReferenceResult {
+                    uri,
+                    algorithm,
+                    checked: Some(actual == expected),
+                },
+                None => fail(uri, algorithm),
             };
         }
         if has_base64_transform(reference) {
-            doc.find_by_id(id)
-                .map(|element| base64::decode(element.text().trim()).unwrap_or_default())
-        } else {
-            // certificate-element references and other content-level
-            // targets have no canonical region here (verified with the
-            // container-signature milestone steps)
-            None
+            let Some(element) = doc.find_by_id(id) else {
+                return fail(uri, algorithm); // target does not exist
+            };
+            let Ok(input) = base64::decode(element.text().trim()) else {
+                return fail(uri, algorithm); // malformed base64 content
+            };
+            return match digest_bytes(&algorithm, &input) {
+                Some(actual) => ReferenceResult {
+                    uri,
+                    algorithm,
+                    checked: Some(actual == expected),
+                },
+                None => fail(uri, algorithm),
+            };
         }
-    } else if let Some(cid) = uri.strip_prefix("cid:") {
-        attachments
-            .iter()
-            .find(|(id, _)| id == cid)
-            .map(|(_, data)| data.clone())
-    } else {
-        None // external URL
-    };
-
-    let checked =
-        input.and_then(|input| digest_bytes(&algorithm, &input).map(|actual| actual == expected));
-    ReferenceResult {
-        uri,
-        algorithm,
-        checked,
+        // Skippable in-document classes (like the Java reference):
+        // cert-element references (bound via RetrievalMethod), href-Content
+        // references (attachment-backed, separately verified via their
+        // cid: reference), and existing deep targets that carry a c14n
+        // instead of a base64 transform (content-signature territory -
+        // nested containers). Everything else in the document fails
+        // closed: a transport-signed target without a canonical region is
+        // the suppressed-digest attack shape, and a dangling reference
+        // points at an element that should exist.
+        let target = doc.find_by_id(id);
+        let is_cert_ref = certs.contains_key(id);
+        let is_href_content_ref = target
+            .is_some_and(|element| element.local == "Content" && element.attr("href").is_some());
+        if is_cert_ref || is_href_content_ref {
+            return skip(uri, algorithm);
+        }
+        let Some(target) = target else {
+            return fail(uri, algorithm); // dangling reference
+        };
+        let _ = target;
+        if is_transport_signed_target(doc, id) {
+            return fail(uri, algorithm); // suppressed digest region
+        }
+        return skip(uri, algorithm);
     }
+
+    if let Some(cid) = uri.strip_prefix("cid:") {
+        // Missing attachments fail closed.
+        let Some(content) = attachments.iter().find(|(id, _)| id == cid) else {
+            return fail(uri, algorithm);
+        };
+        return match digest_bytes(&algorithm, &content.1) {
+            Some(actual) => ReferenceResult {
+                uri,
+                algorithm,
+                checked: Some(actual == expected),
+            },
+            None => fail(uri, algorithm),
+        };
+    }
+
+    // External URL references cannot be resolved offline - skipped, like
+    // the Java reference.
+    skip(uri, algorithm)
 }
 
-/// Visit the first descendant with `local`, invoking `visit`.
-fn find_descendant(element: &Element, local: &str, visit: &mut dyn FnMut(&Element)) {
+/// First descendant with the given local name, document order.
+fn find_first_descendant<'a>(element: &'a Element, local: &str) -> Option<&'a Element> {
     for child in element.elements() {
         if child.local == local {
-            visit(child);
-            return;
+            return Some(child);
         }
-        find_descendant(child, local, visit);
-        // stop if an inner call found it
+        if let Some(found) = find_first_descendant(child, local) {
+            return Some(found);
+        }
     }
+    None
+}
+
+/// Whether `id` belongs to a direct child of the SOAP Header or the Body -
+/// the elements the transport signature covers via canonical regions.
+fn is_transport_signed_target(doc: &Document, id: &str) -> bool {
+    doc.root.elements().any(|top| {
+        (top.local == "Header" || top.local == "Body")
+            && top.elements().any(|e| e.id_attr() == Some(id))
+    })
 }
 
 fn has_base64_transform(reference: &Element) -> bool {
@@ -260,22 +311,30 @@ pub fn verify_document(
     if views.is_empty() {
         return Err(SecurityError::NoSignatures);
     }
-
-    let mut signed_info_iter = canon
-        .signed_infos
-        .iter()
-        .filter_map(|si| si.as_ref().cloned());
+    // Strict pairing: every ds:Signature element gets exactly its own
+    // canonical capture (A1). A mismatch means the document structure was
+    // manipulated - fail loudly, never silently drop a signature.
+    if views.len() != canon.signature_captures.len() {
+        return Err(SecurityError::Structure(format!(
+            "{} signature elements but {} canonical captures",
+            views.len(),
+            canon.signature_captures.len()
+        )));
+    }
 
     let mut signatures = Vec::new();
-    for view in &views {
-        let Some(signed_info) = signed_info_iter.next() else {
-            break;
-        };
+    for (view, signed_info) in views.iter().zip(&canon.signature_captures) {
         let mut result = SignatureResult {
             certificate_id: view.attr("cert-id"),
             method: view.attr("method").unwrap_or_default(),
             signature_valid: false,
             references: Vec::new(),
+        };
+        // A signature without a (gated) SignedInfo capture is unverifiable
+        // and stays in the report as invalid.
+        let Some(signed_info) = signed_info else {
+            signatures.push(result);
+            continue;
         };
         let Some(value) = view.attr("value").and_then(|v| base64::decode(&v).ok()) else {
             signatures.push(result);
@@ -293,12 +352,12 @@ pub fn verify_document(
             signatures.push(result);
             continue;
         };
-        result.signature_valid = verify_rsa(&public, &signed_info, &value, &result.method).is_ok();
+        result.signature_valid = verify_rsa(&public, signed_info, &value, &result.method).is_ok();
 
         for reference in view.references() {
             result
                 .references
-                .push(check_reference(reference, doc, canon, attachments));
+                .push(check_reference(reference, doc, canon, &certs, attachments));
         }
         signatures.push(result);
     }
