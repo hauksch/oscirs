@@ -162,7 +162,7 @@ impl MockIntermediary for ScriptedIntermediary {
             entry_inner: Some("<osci:MessageId>aW50ZXJtZWRpYXJ5LWlk</osci:MessageId>".into()),
             ..Default::default()
         };
-        compose_message(&out, "MIME_boundary").map_err(TransportError)
+        compose_message(&out, "MIME_boundary").map_err(|e| TransportError(e.to_string()))
     }
 }
 

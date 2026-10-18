@@ -6,6 +6,7 @@ members = [
   "crates/osci-crypto",
   "crates/osci-samples",
   "crates/osci-transport",
+  "crates/test-utils",
 ]
 # fuzz/ is a separate cargo workspace (cargo-fuzz layout)
 exclude = ["fuzz"]

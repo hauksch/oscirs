@@ -16,6 +16,16 @@ use super::{ChunkInformation, MessageType};
 pub const MIME_BOUNDARY_PREFIX: &str = "MIME_boundary";
 pub const MESSAGE_CONTENT_ID: &str = "osci@message";
 
+#[derive(Debug, thiserror::Error)]
+pub enum ComposeError {
+    #[error("message kind missing or unsupported: {0}")]
+    Kind(String),
+    #[error("required value missing: {0}")]
+    Missing(String),
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+}
+
 /// One content unit in an outbound container.
 #[derive(Debug, Clone, Default)]
 pub struct OutContent {
@@ -274,8 +284,10 @@ fn bundles_xml(bundles: &[OutProcessCardBundle]) -> String {
 }
 
 /// Compose the full MIME stream (message part + attachments).
-pub fn compose_message(msg: &OutMessage, boundary: &str) -> Result<Vec<u8>, String> {
-    let kind = msg.kind.ok_or("message kind missing")?;
+pub fn compose_message(msg: &OutMessage, boundary: &str) -> Result<Vec<u8>, ComposeError> {
+    let kind = msg
+        .kind
+        .ok_or_else(|| ComposeError::Kind("message kind missing".into()))?;
     let mut xml = compose_xml(msg, kind, boundary)?;
 
     let mut out = Vec::new();
@@ -323,7 +335,7 @@ pub fn compose_xml(
     msg: &OutMessage,
     kind: MessageType,
     _boundary: &str,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, ComposeError> {
     // the Java writer derives the hint from the class name:
     // "soap" + PascalCase(elementName) + ".xsd"
     let element = kind.element_name();
@@ -338,7 +350,7 @@ pub fn compose_xml(
     );
     let mut out = Vec::new();
     let mut w = XmlWriter::new(&mut out);
-    w.write_decl().map_err(|e| e.to_string())?;
+    w.write_decl().map_err(ComposeError::Io)?;
     w.raw(b"\r\n\r\n<soap:Envelope").ok();
     w.raw(NS_BLOCK.as_bytes()).ok();
     w.raw(schema.as_bytes()).ok();
@@ -351,7 +363,7 @@ pub fn compose_xml(
         hc.header_entry(&crate::soap::HeaderEntry::ControlBlock(
             msg.control_block.clone(),
         ))
-        .map_err(|e| e.to_string())?;
+        .map_err(ComposeError::Io)?;
     }
     w.raw(&header_out).ok();
 
@@ -363,17 +375,17 @@ pub fn compose_xml(
             hc.header_entry(&crate::soap::HeaderEntry::DesiredLanguages {
                 languages: languages.clone(),
             })
-            .map_err(|e| e.to_string())?;
+            .map_err(ComposeError::Io)?;
         }
         w.raw(&lang_out).ok();
     }
 
     // Quality of timestamps (creation first, then reception)
     if let Some(cryptographic) = msg.quality_creation {
-        quality_header(&mut w, false, cryptographic).map_err(|e| e.to_string())?;
+        quality_header(&mut w, false, cryptographic).map_err(ComposeError::Io)?;
     }
     if let Some(cryptographic) = msg.quality_reception {
-        quality_header(&mut w, true, cryptographic).map_err(|e| e.to_string())?;
+        quality_header(&mut w, true, cryptographic).map_err(ComposeError::Io)?;
     }
 
     // Message entry (header types; dialog/fetchProcessCard types go to
@@ -448,7 +460,7 @@ pub fn compose_xml(
         {
             let mut hc = HeaderComposer::new(&mut fd_out);
             hc.header_entry(&crate::soap::HeaderEntry::FeatureDescription(fd.clone()))
-                .map_err(|e| e.to_string())?;
+                .map_err(ComposeError::Io)?;
         }
         w.raw(&fd_out).ok();
     }

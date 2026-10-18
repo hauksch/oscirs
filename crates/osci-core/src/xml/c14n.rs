@@ -25,11 +25,6 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use ripemd::Ripemd160;
-use sha1::Sha1;
-use sha2::{Sha256, Sha512};
-use sha3::{Sha3_256, Sha3_384, Sha3_512};
-
 use super::parser;
 use super::writer::{escape_attr, escape_text};
 use super::{Document, Element, Node, XMLDSIG_NS};
@@ -153,20 +148,11 @@ pub fn canonicalize_str(input: &str) -> Result<Canonicalization, C14nError> {
     canonicalize(&parser::parse(input)?)
 }
 
-/// Digest algorithm selection by XML URI (the JCA_JCE_MAP equivalent).
+/// Digest algorithm selection by XML URI (the JCA_JCE_MAP equivalent),
+/// delegated to the single crypto generation in `osci-crypto`.
 /// Returns `None` for unsupported algorithm URIs.
 pub fn digest_bytes(uri: &str, data: &[u8]) -> Option<Vec<u8>> {
-    use sha2::Digest as _;
-    match uri {
-        DIGEST_SHA1 => Some(Sha1::digest(data).to_vec()),
-        DIGEST_SHA256 => Some(Sha256::digest(data).to_vec()),
-        DIGEST_SHA512 => Some(Sha512::digest(data).to_vec()),
-        DIGEST_RIPEMD160 => Some(Ripemd160::digest(data).to_vec()),
-        DIGEST_SHA3_256 => Some(Sha3_256::digest(data).to_vec()),
-        DIGEST_SHA3_384 => Some(Sha3_384::digest(data).to_vec()),
-        DIGEST_SHA3_512 => Some(Sha3_512::digest(data).to_vec()),
-        _ => None,
-    }
+    osci_crypto::algorithms::digest_bytes(uri, data)
 }
 
 struct Walker {

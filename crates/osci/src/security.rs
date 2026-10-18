@@ -378,7 +378,7 @@ pub fn decrypt_encrypted_data(
     find_encrypted_data(&doc.root, &mut encrypted);
     let element = encrypted
         .get(index)
-        .ok_or_else(|| SecurityError::Canonicalization(format!("no EncryptedData #{index}")))?;
+        .ok_or_else(|| SecurityError::Decrypt(format!("no EncryptedData #{index}")))?;
     decrypt_element(element, decrypters)
 }
 
@@ -417,11 +417,11 @@ fn decrypt_element(
     let mut methods = Vec::new();
     find_methods(element, &mut methods);
     let Some(cipher_uri) = methods.first().and_then(|m| m.attr("Algorithm")) else {
-        return Err(SecurityError::Canonicalization("no cipher".into()));
+        return Err(SecurityError::Decrypt("no EncryptionMethod".into()));
     };
     let cipher_uri = cipher_uri.to_string();
     let Some(cipher) = SymCipher::from_uri(&cipher_uri) else {
-        return Err(SecurityError::Canonicalization(format!(
+        return Err(SecurityError::Decrypt(format!(
             "unsupported cipher {cipher_uri}"
         )));
     };
@@ -438,9 +438,7 @@ fn decrypt_element(
     let mut values = Vec::new();
     find_cipher_values(element, &mut values);
     if values.len() < 2 {
-        return Err(SecurityError::Canonicalization(
-            "missing cipher data".into(),
-        ));
+        return Err(SecurityError::Decrypt("missing CipherValue data".into()));
     }
     let wrapped_key = values[0].clone();
     let ciphertext = values[1].clone();
@@ -479,7 +477,7 @@ fn decrypt_element(
             });
         }
     }
-    Err(SecurityError::Canonicalization(
+    Err(SecurityError::Decrypt(
         "no decrypter could unwrap the session key".into(),
     ))
 }

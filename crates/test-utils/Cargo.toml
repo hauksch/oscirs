@@ -1,0 +1,9 @@
+[package]
+name = "test-utils"
+description = "Shared test utilities (dev-only) for the workspace integration tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]

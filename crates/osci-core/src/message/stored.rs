@@ -96,7 +96,10 @@ impl StoredMessage {
     }
 
     /// Compose a message to its full MIME stream.
-    pub fn store(out: &compose::OutMessage, boundary: &str) -> Result<Vec<u8>, String> {
+    pub fn store(
+        out: &compose::OutMessage,
+        boundary: &str,
+    ) -> Result<Vec<u8>, compose::ComposeError> {
         compose::compose_message(out, boundary)
     }
 
@@ -149,16 +152,16 @@ impl DialogFinder {
     }
 }
 
+impl StoredMessage {
+    /// Conversation id of the message's control block.
+    pub fn conversation_id(&self) -> Result<Option<String>, MessageError> {
+        self.message.control_block_conversation_id(&self.xml)
+    }
+}
+
 impl OsciMessage {
     /// Conversation id of the message's control block (parsed from the
     /// XML part bytes).
-    pub fn control_block_conversation_id_public(
-        &self,
-        xml: &[u8],
-    ) -> Result<Option<String>, MessageError> {
-        self.control_block_conversation_id(xml)
-    }
-
     fn control_block_conversation_id(&self, xml: &[u8]) -> Result<Option<String>, MessageError> {
         let text =
             std::str::from_utf8(xml).map_err(|e| MessageError::Invalid(format!("utf-8: {e}")))?;

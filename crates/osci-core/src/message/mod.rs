@@ -2,6 +2,7 @@
 //! recognition and parsing, plus composition (`compose`).
 
 pub mod compose;
+pub use compose::ComposeError;
 pub mod mmd;
 pub mod stored;
 

@@ -99,7 +99,7 @@ impl MockIntermediary for Intermediary {
             entry_inner: Some("<osci:MessageId>aWQ=</osci:MessageId>".into()),
             ..Default::default()
         };
-        compose_message(&out, "MIME_boundary").map_err(TransportError)
+        compose_message(&out, "MIME_boundary").map_err(|e| TransportError(e.to_string()))
     }
 }
 

@@ -147,7 +147,8 @@ impl Dialog {
         self.prepare_outbound(kind);
         out.control_block = self.control_block.clone();
 
-        let stream = compose_message(out, boundary).map_err(DialogError::Composition)?;
+        let stream =
+            compose_message(out, boundary).map_err(|e| DialogError::Composition(e.to_string()))?;
         let xml =
             xml_part(&stream).ok_or_else(|| DialogError::Composition("no xml part".into()))?;
 

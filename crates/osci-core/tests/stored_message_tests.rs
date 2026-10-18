@@ -235,11 +235,7 @@ fn dialog_finder_correlates_incoming_requests() {
     // response carries one - the finder itself is generic
     let bytes = std::fs::read(messages_dir().join("ResponseToFetchDelivery.osci")).unwrap();
     let probe = StoredMessage::load(&bytes).unwrap();
-    let conversation_id = probe
-        .message
-        .control_block_conversation_id_public(&probe.xml)
-        .unwrap()
-        .expect("conversation id on the incoming message");
+    let conversation_id = probe.conversation_id().unwrap().expect("conversation id");
 
     let mut finder = DialogFinder::new();
     assert!(

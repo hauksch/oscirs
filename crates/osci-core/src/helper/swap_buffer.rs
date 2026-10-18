@@ -17,23 +17,29 @@ use std::io::{self, BufWriter, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use aes_gcm::aead::{Aead, KeyInit, Payload};
-use aes_gcm::{Aes256Gcm, Nonce};
+use osci_crypto::algorithms::{DEFAULT_SYMMETRIC_CIPHER, SymCipher};
+use osci_crypto::symcipher::oneshot;
 use rand::RngCore;
 
 /// Default in-memory limit before swapping to disk.
 pub const DEFAULT_MAX_BUFFER_SIZE: u64 = 4 * 1024 * 1024;
 /// Plaintext bytes per encrypted frame in the spill file.
 const FRAME_SIZE: usize = 64 * 1024;
-const NONCE_LEN: usize = 12;
+/// Sanity bound for frames read back from disk (a corrupt length field
+/// must not trigger huge allocations).
+const MAX_FRAME_LEN: usize = FRAME_SIZE + 1024;
 
-fn temp_key() -> &'static Aes256Gcm {
-    static KEY: OnceLock<Aes256Gcm> = OnceLock::new();
+fn temp_key() -> &'static [u8; 32] {
+    static KEY: OnceLock<[u8; 32]> = OnceLock::new();
     KEY.get_or_init(|| {
         let mut bytes = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut bytes);
-        Aes256Gcm::new_from_slice(&bytes).expect("32 byte key")
+        bytes
     })
+}
+
+fn frame_cipher() -> SymCipher {
+    SymCipher::from_uri(DEFAULT_SYMMETRIC_CIPHER).expect("default cipher is a known URI")
 }
 
 /// Sealed content, ready to be read (repeatedly).
@@ -63,8 +69,8 @@ enum Source {
 }
 
 /// Streaming decryptor over the chunked-frame spill format:
-/// `[u32 BE ct_len][12B nonce][ct_len bytes ciphertext+tag]`, terminated by
-/// a zero-length frame.
+/// `[u32 BE frame_len][12B IV][frame_len - 28 bytes ciphertext+tag]`,
+/// terminated by a zero-length frame.
 struct DecryptReader {
     file: File,
     plain: Vec<u8>,
@@ -89,18 +95,20 @@ impl DecryptReader {
             self.eof = true;
             return Ok(());
         }
-        let ct_len = u32::from_be_bytes(header) as usize;
-        if ct_len == 0 {
+        let frame_len = u32::from_be_bytes(header) as usize;
+        if frame_len == 0 {
             self.eof = true;
             return Ok(());
         }
-        let mut frame = vec![0u8; NONCE_LEN + ct_len];
+        if frame_len > MAX_FRAME_LEN {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "swap buffer frame corrupt",
+            ));
+        }
+        let mut frame = vec![0u8; frame_len];
         self.file.read_exact(&mut frame)?;
-        let (nonce, ct) = frame.split_at(NONCE_LEN);
-        let nonce = Nonce::try_from(nonce)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "swap buffer frame corrupt"))?;
-        let plain = temp_key()
-            .decrypt(&nonce, ct)
+        let plain = oneshot::decrypt(frame_cipher(), temp_key(), &frame)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "swap buffer frame corrupt"))?;
         self.plain = plain;
         self.pos = 0;
@@ -341,21 +349,12 @@ impl SwapBuffer {
 }
 
 fn write_encrypted_frame(writer: &mut impl Write, plain: &[u8]) -> io::Result<()> {
-    let mut nonce_bytes = [0u8; NONCE_LEN];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::try_from(&nonce_bytes[..]).expect("12 byte nonce");
-    let ct = temp_key()
-        .encrypt(
-            &nonce,
-            Payload {
-                msg: plain,
-                aad: &[],
-            },
-        )
+    let mut iv = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut iv);
+    let frame = oneshot::encrypt(frame_cipher(), temp_key(), &iv, plain)
         .map_err(|_| io::Error::other("swap buffer encryption failed"))?;
-    writer.write_all(&(ct.len() as u32).to_be_bytes())?;
-    writer.write_all(&nonce_bytes)?;
-    writer.write_all(&ct)
+    writer.write_all(&(frame.len() as u32).to_be_bytes())?;
+    writer.write_all(&frame)
 }
 
 pub struct SwapBufferWriter<'a> {

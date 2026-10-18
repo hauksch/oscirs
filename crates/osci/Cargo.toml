@@ -13,3 +13,6 @@ osci-crypto = { path = "../osci-crypto" }
 osci-transport = { path = "../osci-transport" }
 rand = "0.8"
 thiserror = "2.0.21"
+
+[dev-dependencies]
+test-utils = { path = "../test-utils" }

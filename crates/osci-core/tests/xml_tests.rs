@@ -4,7 +4,6 @@
 use osci_core::xml::c14n::{Canonicalization, canonicalize_str};
 use osci_core::xml::parser::{self, XmlError};
 use osci_core::xml::writer::{escape_attr, escape_text};
-use sha2::{Digest, Sha256};
 
 const OSCI2017: &str = "http://xoev.de/transport/osci12/7";
 const DS: &str = "http://www.w3.org/2000/09/xmldsig#";
@@ -187,7 +186,11 @@ fn signed_elements_inherit_namespaces_and_digest() {
     let expected = format!(
         "<osci:DesiredLanguages xmlns:osci=\"{OSCI}\" xmlns:soap=\"{SOAP}\" Id=\"dl\" languages=\"de\"></osci:DesiredLanguages>"
     );
-    let digest = Sha256::digest(expected.as_bytes()).to_vec();
+    let digest = osci_crypto::algorithms::digest_bytes(
+        "http://www.w3.org/2001/04/xmlenc#sha256",
+        expected.as_bytes(),
+    )
+    .unwrap();
     assert_eq!(
         result.digest_values.get("#dl"),
         Some(&digest),
@@ -199,7 +202,13 @@ fn signed_elements_inherit_namespaces_and_digest() {
     );
     assert_eq!(
         result.digest_values.get("#body"),
-        Some(&Sha256::digest(body_expected.as_bytes()).to_vec())
+        Some(
+            &osci_crypto::algorithms::digest_bytes(
+                "http://www.w3.org/2001/04/xmlenc#sha256",
+                body_expected.as_bytes(),
+            )
+            .unwrap()
+        )
     );
 }
 
@@ -228,11 +237,14 @@ fn signed_info_capture_and_control_block_digest() {
 
     // control block digest: sha1 over the canonical control block
     // (namespace-injected, self-contained)
-    use sha1::Digest as _;
     let cb_expected = format!(
         "<osci:ControlBlock xmlns:ds=\"{DS}\" xmlns:osci=\"{OSCI}\" xmlns:soap=\"{SOAP}\" Id=\"controlblock\"><osci:Challenge>3q2+7w==</osci:Challenge></osci:ControlBlock>"
     );
-    let expected_digest = sha1::Sha1::digest(cb_expected.as_bytes()).to_vec();
+    let expected_digest = osci_crypto::algorithms::digest_bytes(
+        "http://www.w3.org/2000/09/xmldsig#sha1",
+        cb_expected.as_bytes(),
+    )
+    .unwrap();
     assert_eq!(
         result.digest_values.get("#controlblock"),
         Some(&expected_digest)
@@ -261,10 +273,15 @@ fn transport_digest_method_selection() {
     let expected = format!(
         "<osci:DesiredLanguages xmlns:ds=\"{DS}\" xmlns:osci=\"{OSCI}\" xmlns:soap=\"{SOAP}\" Id=\"desiredlanguages\" languages=\"de\"></osci:DesiredLanguages>"
     );
-    use sha1::Digest as _;
     assert_eq!(
         result.digest_values.get("#desiredlanguages"),
-        Some(&sha1::Sha1::digest(expected.as_bytes()).to_vec())
+        Some(
+            &osci_crypto::algorithms::digest_bytes(
+                "http://www.w3.org/2000/09/xmldsig#sha1",
+                expected.as_bytes(),
+            )
+            .unwrap()
+        )
     );
 }
 
