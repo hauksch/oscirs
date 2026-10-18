@@ -14,3 +14,4 @@ pub mod weak;
 
 pub use certificate::Certificate;
 pub use error::CryptoError;
+pub use rsa;

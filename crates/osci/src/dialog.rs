@@ -3,11 +3,12 @@
 //! validation, and the send flow (compose -> sign -> transmit -> parse ->
 //! validate) over any `Transport`.
 
-use osci_core::message::compose::{OutMessage, compose_message};
+use osci_core::message::compose::{OutContentContainer, OutMessage, compose_message};
 use osci_core::message::stored::StoredMessage;
 use osci_core::message::{FeedbackEntry, MessageType, OsciMessage};
 use osci_core::soap::ControlBlock;
 use osci_core::xml::parser;
+use osci_crypto::Certificate;
 use osci_crypto::software::Signer;
 
 use crate::sign::{SignParams, sign_message_xml};
@@ -34,12 +35,28 @@ pub enum DialogError {
 /// mutable statics with an explicit, owned context.
 pub struct Dialog {
     pub control_block: ControlBlock,
-    /// Random source for challenges (base64 of 16 random bytes, like the
-    /// reference `Tools.createRandom(16)`).
     transport: Box<dyn osci_transport::Transport>,
     signer: Option<Box<dyn Signer>>,
     /// Id of the signature certificate entry inside the message.
     certificate_id: Option<String>,
+    /// Optional transport-level encryption toward the intermediary: the
+    /// signed stream is wrapped into a SOAPMessageEncrypted envelope as
+    /// the last step before sending.
+    transport_encryption: Option<TransportEncryption>,
+}
+
+/// One content-encryption request for [`Dialog::send_encrypted`].
+pub struct ContentEncryption<'a> {
+    pub inner: OutContentContainer,
+    pub recipients: &'a [crate::security::EncRecipient],
+    pub config: crate::security::EncryptConfig,
+}
+
+/// Transport-encryption configuration (the intermediary's cipher cert).
+#[derive(Debug, Clone)]
+pub struct TransportEncryption {
+    pub recipient_cert: Certificate,
+    pub config: crate::security::EncryptConfig,
 }
 
 impl Dialog {
@@ -47,6 +64,7 @@ impl Dialog {
         Self {
             control_block: ControlBlock::default(),
             transport,
+            transport_encryption: None,
             signer: None,
             certificate_id: None,
         }
@@ -56,6 +74,45 @@ impl Dialog {
         self.certificate_id = Some(certificate_id);
         self.signer = Some(signer);
         self
+    }
+
+    /// Enable transport-level encryption toward the intermediary: the
+    /// signed MIME stream is wrapped into a SOAPMessageEncrypted envelope
+    /// as the last step of [`Dialog::send`].
+    pub fn with_transport_encryption(
+        mut self,
+        recipient_cert: Certificate,
+        config: crate::security::EncryptConfig,
+    ) -> Self {
+        self.transport_encryption = Some(TransportEncryption {
+            recipient_cert,
+            config,
+        });
+        self
+    }
+
+    /// Convenience: encrypt `request.inner` for the given recipients
+    /// (content encryption, composed into the message body before
+    /// signing), then [`Dialog::send`].
+    pub fn send_encrypted(
+        &mut self,
+        out: &mut OutMessage,
+        request: ContentEncryption<'_>,
+        attachments: &[(String, Vec<u8>)],
+        boundary: &str,
+    ) -> Result<OsciMessage, DialogError> {
+        // encdata_N convention: index within this message
+        let enc_id = Some(format!("encdata_{}", out.encrypted_data.len()));
+        let encrypted = crate::security::encrypt_container(
+            &request.inner,
+            request.recipients,
+            &request.config,
+            enc_id,
+            None,
+        )
+        .map_err(|e| DialogError::Composition(e.to_string()))?;
+        out.encrypted_data.push(encrypted);
+        self.send(out, attachments, boundary)
     }
 
     fn fresh_challenge(&self) -> String {
@@ -175,6 +232,19 @@ impl Dialog {
 
         let request_stream = replace_xml_part(&stream, &signed_xml)
             .map_err(|e| DialogError::Composition(e.to_string()))?;
+
+        // transport-level encryption wraps the signed stream last
+        let request_stream = match &self.transport_encryption {
+            Some(te) => crate::security::encrypt_message_for(
+                &request_stream,
+                &te.recipient_cert,
+                &te.config,
+                boundary,
+            )
+            .map_err(|e| DialogError::Composition(e.to_string()))?,
+            None => request_stream,
+        };
+
         let response_bytes = self
             .transport
             .send(&request_stream)

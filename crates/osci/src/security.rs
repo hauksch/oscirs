@@ -11,9 +11,13 @@
 //! transfer-decoded attachment bytes of `cid:` references.
 
 use std::collections::HashMap;
+use std::io::Read as _;
 
 use osci_core::helper::base64;
-use osci_core::xml::c14n::{Canonicalization, canonicalize, digest_bytes}; // digest_bytes used in reference checks
+use osci_core::message::compose::{
+    KeyInfoRef, KeyTransportParams, OutContentContainer, OutEncryptedData, OutEncryptedKey,
+};
+use osci_core::xml::c14n::{Canonicalization, canonicalize, digest_bytes};
 use osci_core::xml::parser;
 use osci_core::xml::{Document, Element};
 use osci_crypto::algorithms::{KEY_TRANSPORT_RSA_1_5, SymCipher};
@@ -430,9 +434,7 @@ fn decrypt_element(
         .and_then(|m| m.attr("Algorithm"))
         .unwrap_or(KEY_TRANSPORT_RSA_1_5)
         .to_string();
-    let mgf = element.elements().find_map(|e| {
-        (e.local == "MGF").then(|| e.attr("Algorithm").unwrap_or_default().to_string())
-    });
+    let mgf = find_descendant_text(element, "MGF");
     let oaep_digest = find_descendant_text(element, "DigestMethod");
 
     let mut values = Vec::new();
@@ -502,12 +504,387 @@ fn find_cipher_values(element: &Element, out: &mut Vec<Vec<u8>>) {
     }
 }
 
+/// First descendant with `local`, returning its `Algorithm` attribute.
 fn find_descendant_text(element: &Element, local: &str) -> Option<String> {
     for child in element.elements() {
         if child.local == local {
             return child.attr("Algorithm").map(str::to_string);
         }
         if let Some(found) = find_descendant_text(child, local) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+// ---------------------------------------------------------- encrypt side
+
+/// Recipient of an outbound content encryption: cipher certificate plus
+/// the Id of its certificate element in the message header (the
+/// EncryptedKey references it via RetrievalMethod).
+#[derive(Debug, Clone)]
+pub struct EncRecipient {
+    pub cert: osci_crypto::Certificate,
+    pub cert_element_id: String,
+}
+
+/// Configuration of one outbound encryption (content or transport).
+#[derive(Debug, Clone)]
+pub struct EncryptConfig {
+    pub content_cipher: String,
+    pub key_transport: KeyTransportParams,
+}
+
+impl Default for EncryptConfig {
+    fn default() -> Self {
+        Self {
+            content_cipher: osci_crypto::algorithms::DEFAULT_SYMMETRIC_CIPHER.to_string(),
+            key_transport: KeyTransportParams::oaep_sha256(),
+        }
+    }
+}
+
+/// Generate the session key and wrap it for every recipient. Returns the
+/// key plus one wrapped-key blob per recipient (same order).
+fn session_key_with_wraps(
+    config: &EncryptConfig,
+    recipients: &[EncRecipient],
+) -> Result<(Vec<u8>, Vec<Vec<u8>>), SecurityError> {
+    let session_key = osci_crypto::calc::create_sym_key(&config.content_cipher)
+        .map_err(|e| SecurityError::Decrypt(e.to_string()))?;
+    let mut wraps = Vec::with_capacity(recipients.len());
+    for recipient in recipients {
+        let public = recipient
+            .cert
+            .rsa_public_key()
+            .map_err(|e| SecurityError::Decrypt(e.to_string()))?;
+        let wrapped = match config.key_transport.algorithm.as_str() {
+            a if a == osci_crypto::algorithms::KEY_TRANSPORT_RSA_1_5 => {
+                use osci_crypto::rsa::Pkcs1v15Encrypt;
+                let mut rng = rand::thread_rng();
+                public
+                    .encrypt(&mut rng, Pkcs1v15Encrypt, &session_key)
+                    .map_err(|e| SecurityError::Decrypt(e.to_string()))?
+            }
+            _ => {
+                let digest = config
+                    .key_transport
+                    .digest
+                    .as_deref()
+                    .unwrap_or(osci_crypto::algorithms::DIGEST_SHA256);
+                let mut rng = rand::thread_rng();
+                wrap_oaep(&public, &session_key, digest, &mut rng)?
+            }
+        };
+        wraps.push(wrapped);
+    }
+    Ok((session_key, wraps))
+}
+
+/// OAEP wrap with MGF1 = the same hash (Java 2.6.x convention), SHA-3
+/// digests mapped to their SHA-2 counterparts.
+fn wrap_oaep(
+    public: &osci_crypto::rsa::RsaPublicKey,
+    data: &[u8],
+    digest_uri: &str,
+    rng: &mut (impl rand::CryptoRng + rand::RngCore),
+) -> Result<Vec<u8>, SecurityError> {
+    use osci_crypto::rsa::Oaep;
+    let digest = match digest_uri {
+        osci_crypto::algorithms::DIGEST_SHA3_256 => osci_crypto::algorithms::DIGEST_SHA256,
+        osci_crypto::algorithms::DIGEST_SHA3_384 | osci_crypto::algorithms::DIGEST_SHA3_512 => {
+            osci_crypto::algorithms::DIGEST_SHA512
+        }
+        uri => uri,
+    };
+    let padding = match digest {
+        osci_crypto::algorithms::DIGEST_SHA256 => Oaep::new::<osci_crypto::rsa::sha2::Sha256>(),
+        osci_crypto::algorithms::DIGEST_SHA384 => Oaep::new::<osci_crypto::rsa::sha2::Sha384>(),
+        osci_crypto::algorithms::DIGEST_SHA512 => Oaep::new::<osci_crypto::rsa::sha2::Sha512>(),
+        other => {
+            return Err(SecurityError::Decrypt(format!(
+                "unsupported OAEP digest {other}"
+            )));
+        }
+    };
+    public
+        .encrypt(rng, padding, data)
+        .map_err(|e| SecurityError::Decrypt(e.to_string()))
+}
+
+/// Encrypt one inner ContentContainer for the given recipients (port of
+/// `EncryptedDataOSCI.encrypt`): produces the composed `OutEncryptedData`
+/// for `OutMessage::encrypted_data`. The container's plain writeXML bytes
+/// are session-key encrypted (`[IV][ciphertext]`), the session key is
+/// wrapped once per recipient.
+///
+/// `iv` pins the IV for deterministic tests; pass `None` in production.
+pub fn encrypt_container(
+    inner: &OutContentContainer,
+    recipients: &[EncRecipient],
+    config: &EncryptConfig,
+    enc_id: Option<String>,
+    iv: Option<&[u8]>,
+) -> Result<OutEncryptedData, SecurityError> {
+    let cipher = SymCipher::from_uri(&config.content_cipher).ok_or_else(|| {
+        SecurityError::Decrypt(format!("unsupported cipher {}", config.content_cipher))
+    })?;
+
+    // plaintext = the container's plain writeXML bytes
+    let mut plain = Vec::new();
+    osci_core::message::compose::write_container_xml(
+        inner,
+        &mut osci_core::xml::writer::XmlWriter::new(&mut plain),
+    );
+
+    let iv_owned = match iv {
+        Some(iv) => iv.to_vec(),
+        None => osci_crypto::calc::create_iv(&config.content_cipher, None)
+            .map_err(|e| SecurityError::Decrypt(e.to_string()))?,
+    };
+    let (session_key, wraps) = session_key_with_wraps(config, recipients)?;
+
+    let ciphertext =
+        osci_crypto::symcipher::oneshot::encrypt(cipher, &session_key, &iv_owned, &plain)
+            .map_err(|e| SecurityError::Decrypt(e.to_string()))?;
+
+    let recipients = recipients
+        .iter()
+        .zip(wraps)
+        .map(|(r, wrapped)| OutEncryptedKey {
+            key_transport: config.key_transport.clone(),
+            key_info: KeyInfoRef::CertElementId(r.cert_element_id.clone()),
+            wrapped_key: wrapped,
+        })
+        .collect();
+
+    Ok(OutEncryptedData {
+        id: enc_id,
+        mime_type: Some("text/xml".into()),
+        content_cipher: config.content_cipher.clone(),
+        iv_len: iv_owned.len(),
+        ciphertext,
+        key_transport: config.key_transport.clone(),
+        recipients,
+        cipher_reference: None,
+    })
+}
+
+/// Encrypt a complete signed MIME message for the intermediary-side
+/// transport envelope (port of `SOAPMessageEncrypted`): returns the outer
+/// MIME stream whose Body is a single `xenc:EncryptedData` with
+/// `CipherReference URI="cid:osci_enc"` and whose second MIME part
+/// carries `base64(IV || ciphertext)` of the inner stream.
+pub fn encrypt_message_for(
+    signed_stream: &[u8],
+    recipient_cert: &osci_crypto::Certificate,
+    config: &EncryptConfig,
+    boundary: &str,
+) -> Result<Vec<u8>, SecurityError> {
+    let cipher = SymCipher::from_uri(&config.content_cipher).ok_or_else(|| {
+        SecurityError::Decrypt(format!("unsupported cipher {}", config.content_cipher))
+    })?;
+
+    // session key + IV; encrypt the whole inner stream
+    let session_key = osci_crypto::calc::create_sym_key(&config.content_cipher)
+        .map_err(|e| SecurityError::Decrypt(e.to_string()))?;
+    let mut iv = vec![0u8; 12];
+    use rand::RngCore as _;
+    rand::thread_rng().fill_bytes(&mut iv);
+    // oneshot output is already [IV][ciphertext+tag]
+    let framed = osci_crypto::symcipher::oneshot::encrypt(cipher, &session_key, &iv, signed_stream)
+        .map_err(|e| SecurityError::Decrypt(e.to_string()))?;
+
+    // EncryptedKey wraps the session key for the recipient; the recipient
+    // certificate travels INLINE in the EncryptedKey (fixture parity).
+    let wrapped = {
+        let public = recipient_cert
+            .rsa_public_key()
+            .map_err(|e| SecurityError::Decrypt(e.to_string()))?;
+        let digest = config
+            .key_transport
+            .digest
+            .as_deref()
+            .unwrap_or(osci_crypto::algorithms::DIGEST_SHA256);
+        let mut rng = rand::thread_rng();
+        match config.key_transport.algorithm.as_str() {
+            a if a == osci_crypto::algorithms::KEY_TRANSPORT_RSA_1_5 => {
+                use osci_crypto::rsa::Pkcs1v15Encrypt;
+                public
+                    .encrypt(&mut rng, Pkcs1v15Encrypt, &session_key)
+                    .map_err(|e| SecurityError::Decrypt(e.to_string()))?
+            }
+            _ => wrap_oaep(&public, &session_key, digest, &mut rng)?,
+        }
+    };
+
+    let iv_and_ct_b64 = osci_core::helper::base64::encode(&framed);
+    let cert_b64 = osci_core::helper::base64::encode(recipient_cert.der());
+
+    // outer envelope per SOAPMessageEncrypted: Body holds exactly one
+    // EncryptedData (no Id, MimeType Multipart/Related, inline cert,
+    // CipherReference to cid:osci_enc).
+    let outer_xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+
+<soap:Envelope xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://schemas.xmlsoap.org/soap/envelope/ soapMessageEncrypted.xsd http://www.w3.org/2000/09/xmldsig# oscisig.xsd http://www.w3.org/2001/04/xmlenc# oscienc.xsd"><soap:Body><xenc:EncryptedData MimeType="Multipart/Related"><xenc:EncryptionMethod Algorithm="{content_cipher}"></xenc:EncryptionMethod><ds:KeyInfo><xenc:EncryptedKey><xenc:EncryptionMethod Algorithm="{key_transport}">{mgf_digest}</xenc:EncryptionMethod><ds:KeyInfo><ds:X509Data><ds:X509Certificate>{cert_b64}</ds:X509Certificate></ds:X509Data></ds:KeyInfo><xenc:CipherData><xenc:CipherValue>{wrapped_b64}</xenc:CipherValue></xenc:CipherData></xenc:EncryptedKey></ds:KeyInfo><xenc:CipherData><xenc:CipherReference URI="cid:osci_enc"><xenc:Transforms><ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#base64"></ds:Transform></xenc:Transforms></xenc:CipherReference></xenc:CipherData></xenc:EncryptedData></soap:Body></soap:Envelope>"#,
+        content_cipher = config.content_cipher,
+        key_transport = config.key_transport.algorithm,
+        mgf_digest = match (
+            config.key_transport.mgf.as_deref(),
+            config.key_transport.digest.as_deref(),
+        ) {
+            (Some(mgf), Some(digest)) => format!(
+                "<xenc11:MGF xmlns:xenc11=\"http://www.w3.org/2009/xmlenc11#\" Algorithm=\"{mgf}\"></xenc11:MGF><ds:DigestMethod Algorithm=\"{digest}\"></ds:DigestMethod>"
+            ),
+            _ => String::new(),
+        },
+        cert_b64 = cert_b64,
+        wrapped_b64 = osci_core::helper::base64::encode(&wrapped),
+    );
+
+    // MIME framing: XML part + base64 ciphertext part
+    let mut out = Vec::new();
+    out.extend_from_slice(
+        format!(
+            "MIME-Version: 1.0\r\nContent-Type: Multipart/Related; boundary={boundary}; type=text/xml\r\n"
+        )
+        .as_bytes(),
+    );
+    out.extend_from_slice(
+        format!(
+            "\r\n--{boundary}\r\nContent-Type: text/xml; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\nContent-ID: <osci@message>\r\nContent-Length: {}\r\n\r\n",
+            outer_xml.len()
+        )
+        .as_bytes(),
+    );
+    out.extend_from_slice(outer_xml.as_bytes());
+    out.extend_from_slice(
+        format!(
+            "\r\n--{boundary}\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: base64\r\nContent-ID: <osci_enc>\r\n\r\n"
+        )
+        .as_bytes(),
+    );
+    out.extend_from_slice(iv_and_ct_b64.as_bytes());
+    out.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    Ok(out)
+}
+
+/// Decrypt a transport-encrypted envelope: unwraps the session key with
+/// the given decrypter, decrypts the `cid:osci_enc` part and returns the
+/// inner (already signed) MIME stream.
+pub fn decrypt_transport_message(
+    stored: &StoredMessageLike<'_>,
+    decrypters: &[&dyn Decrypter],
+) -> Result<Vec<u8>, SecurityError> {
+    // locate the transport EncryptedData: Body-level, CipherReference
+    let xml = std::str::from_utf8(stored.xml()).map_err(|e| SecurityError::Xml(e.to_string()))?;
+    let doc = parser::parse(xml).map_err(|e| SecurityError::Xml(e.to_string()))?;
+    let mut encrypted = Vec::new();
+    find_encrypted_data(&doc.root, &mut encrypted);
+    let element = encrypted
+        .first()
+        .ok_or_else(|| SecurityError::Decrypt("no transport EncryptedData".into()))?;
+
+    // methods: [0] content cipher, [1] key transport; MGF/digest recursive
+    let mut methods = Vec::new();
+    find_methods(element, &mut methods);
+    let cipher_uri = methods
+        .first()
+        .and_then(|m| m.attr("Algorithm"))
+        .ok_or_else(|| SecurityError::Decrypt("no EncryptionMethod".into()))?
+        .to_string();
+    let cipher = SymCipher::from_uri(&cipher_uri)
+        .ok_or_else(|| SecurityError::Decrypt(format!("unsupported cipher {cipher_uri}")))?;
+    let transport_uri = methods
+        .get(1)
+        .and_then(|m| m.attr("Algorithm"))
+        .unwrap_or(KEY_TRANSPORT_RSA_1_5)
+        .to_string();
+    let mgf = find_descendant_text(element, "MGF");
+    let oaep_digest = find_descendant_text(element, "DigestMethod");
+
+    // wrapped key from the inline CipherValue, ciphertext from the
+    // referenced MIME part
+    let mut values = Vec::new();
+    find_cipher_values(element, &mut values);
+    let wrapped_key = values
+        .first()
+        .ok_or_else(|| SecurityError::Decrypt("missing wrapped key".into()))?;
+    let reference = find_cipher_reference(element)
+        .ok_or_else(|| SecurityError::Decrypt("no CipherReference".into()))?;
+    let cid = reference
+        .strip_prefix("cid:")
+        .ok_or_else(|| SecurityError::Decrypt(format!("bad reference {reference}")))?;
+    let content = stored
+        .attachment(cid)
+        .ok_or_else(|| SecurityError::Decrypt(format!("attachment {cid} not found")))?;
+
+    for decrypter in decrypters {
+        let session_key = match transport_uri.as_str() {
+            KEY_TRANSPORT_RSA_1_5 => decrypter.decrypt_pkcs1v15(wrapped_key),
+            _ => decrypter.decrypt_oaep(
+                wrapped_key,
+                mgf.as_deref()
+                    .unwrap_or("http://www.w3.org/2009/xmlenc11#mgf1sha256"),
+                oaep_digest
+                    .as_deref()
+                    .unwrap_or("http://www.w3.org/2001/04/xmlenc#sha256"),
+            ),
+        };
+        let Ok(session_key) = session_key else {
+            continue;
+        };
+        if session_key.len() != cipher.key_length() {
+            continue;
+        }
+        let mut inner = Vec::new();
+        let mut dr = match DecryptReader::new(&content.data[..], cipher, &session_key) {
+            Ok(dr) => dr,
+            Err(_e) => {
+                continue;
+            }
+        };
+        match dr.read_to_end(&mut inner) {
+            Ok(_) => {}
+            Err(_e) => {
+                continue;
+            }
+        }
+        if inner.is_empty() {
+            continue;
+        }
+        if inner.starts_with(b"MIME-Version") || inner.starts_with(b"<?xml") {
+            return Ok(inner);
+        }
+    }
+    Err(SecurityError::Decrypt(
+        "no decrypter could open the transport envelope".into(),
+    ))
+}
+
+/// Borrowing view over a loaded message for the decrypt helpers above.
+pub struct StoredMessageLike<'a> {
+    pub xml: &'a [u8],
+    pub attachments: &'a [osci_core::message::stored::LoadedAttachment],
+}
+
+impl StoredMessageLike<'_> {
+    pub fn xml(&self) -> &[u8] {
+        self.xml
+    }
+
+    pub fn attachment(&self, cid: &str) -> Option<&osci_core::message::stored::LoadedAttachment> {
+        self.attachments.iter().find(|a| a.content_id == cid)
+    }
+}
+
+fn find_cipher_reference(element: &Element) -> Option<String> {
+    for child in element.elements() {
+        if child.local == "CipherReference" {
+            return child.attr("URI").map(str::to_string);
+        }
+        if let Some(found) = find_cipher_reference(child) {
             return Some(found);
         }
     }

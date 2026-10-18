@@ -75,6 +75,9 @@ Every layer is gated against the pinned reference:
 - [x] MessageMetaData extension header
 - [x] Transport + content signature composition (two-pass) and verification
 - [x] EncryptedData decryption pipelines
+- [x] Outbound content encryption (EncryptedData composition: AES-GCM/CBC,
+  OAEP-SHA256/v1.5 key transport, multi-recipient) and transport-level
+  encryption (SOAPMessageEncrypted envelope) — see issue #1
 - [x] Dialog state machine (challenge/response, conversation; sequence is echo-compared only)
 - [x] Loopback + HTTP transports
 - [x] Sample program
