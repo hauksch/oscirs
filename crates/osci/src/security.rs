@@ -718,17 +718,27 @@ pub fn encrypt_message_for(
         }
     };
 
-    let iv_and_ct_b64 = osci_core::helper::base64::encode(&framed);
     let cert_b64 = osci_core::helper::base64::encode(recipient_cert.der());
 
     // outer envelope per SOAPMessageEncrypted: Body holds exactly one
     // EncryptedData (no Id, MimeType Multipart/Related, inline cert,
-    // CipherReference to cid:osci_enc).
+    // CipherReference to cid:osci_enc). The content EncryptionMethod
+    // carries the Korrigenda-7 IvLength hint whenever the IV is not the
+    // legacy 16 bytes (parity with the content-encryption path).
+    let iv_len_hint = if iv.len() != 16 {
+        format!(
+            "<osci128:IvLength xmlns:osci128=\"http://xoev.de/transport/osci12/8\" Value=\"{}\"></osci128:IvLength>",
+            iv.len()
+        )
+    } else {
+        String::new()
+    };
     let outer_xml = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 
-<soap:Envelope xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://schemas.xmlsoap.org/soap/envelope/ soapMessageEncrypted.xsd http://www.w3.org/2000/09/xmldsig# oscisig.xsd http://www.w3.org/2001/04/xmlenc# oscienc.xsd"><soap:Body><xenc:EncryptedData MimeType="Multipart/Related"><xenc:EncryptionMethod Algorithm="{content_cipher}"></xenc:EncryptionMethod><ds:KeyInfo><xenc:EncryptedKey><xenc:EncryptionMethod Algorithm="{key_transport}">{mgf_digest}</xenc:EncryptionMethod><ds:KeyInfo><ds:X509Data><ds:X509Certificate>{cert_b64}</ds:X509Certificate></ds:X509Data></ds:KeyInfo><xenc:CipherData><xenc:CipherValue>{wrapped_b64}</xenc:CipherValue></xenc:CipherData></xenc:EncryptedKey></ds:KeyInfo><xenc:CipherData><xenc:CipherReference URI="cid:osci_enc"><xenc:Transforms><ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#base64"></ds:Transform></xenc:Transforms></xenc:CipherReference></xenc:CipherData></xenc:EncryptedData></soap:Body></soap:Envelope>"#,
+<soap:Envelope xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xenc="http://www.w3.org/2001/04/xmlenc#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://schemas.xmlsoap.org/soap/envelope/ soapMessageEncrypted.xsd http://www.w3.org/2000/09/xmldsig# oscisig.xsd http://www.w3.org/2001/04/xmlenc# oscienc.xsd"><soap:Body><xenc:EncryptedData MimeType="Multipart/Related"><xenc:EncryptionMethod Algorithm="{content_cipher}">{iv_len_hint}</xenc:EncryptionMethod><ds:KeyInfo><xenc:EncryptedKey><xenc:EncryptionMethod Algorithm="{key_transport}">{mgf_digest}</xenc:EncryptionMethod><ds:KeyInfo><ds:X509Data><ds:X509Certificate>{cert_b64}</ds:X509Certificate></ds:X509Data></ds:KeyInfo><xenc:CipherData><xenc:CipherValue>{wrapped_b64}</xenc:CipherValue></xenc:CipherData></xenc:EncryptedKey></ds:KeyInfo><xenc:CipherData><xenc:CipherReference URI="cid:osci_enc"><xenc:Transforms><ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#base64"></ds:Transform></xenc:Transforms></xenc:CipherReference></xenc:CipherData></xenc:EncryptedData></soap:Body></soap:Envelope>"#,
         content_cipher = config.content_cipher,
+        iv_len_hint = iv_len_hint,
         key_transport = config.key_transport.algorithm,
         mgf_digest = match (
             config.key_transport.mgf.as_deref(),
@@ -743,7 +753,9 @@ pub fn encrypt_message_for(
         wrapped_b64 = osci_core::helper::base64::encode(&wrapped),
     );
 
-    // MIME framing: XML part + base64 ciphertext part
+    // MIME framing: XML part + RAW binary ciphertext part (Java 2.6.1
+    // dialect: the octets of IV || ciphertext || tag, no base64, no line
+    // breaking - written in one write_all so nothing mangles them).
     let mut out = Vec::new();
     out.extend_from_slice(
         format!(
@@ -761,11 +773,11 @@ pub fn encrypt_message_for(
     out.extend_from_slice(outer_xml.as_bytes());
     out.extend_from_slice(
         format!(
-            "\r\n--{boundary}\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: base64\r\nContent-ID: <osci_enc>\r\n\r\n"
+            "\r\n--{boundary}\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: binary\r\nContent-ID: <osci_enc>\r\n\r\n"
         )
         .as_bytes(),
     );
-    out.extend_from_slice(iv_and_ct_b64.as_bytes());
+    out.extend_from_slice(&framed);
     out.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
     Ok(out)
 }
@@ -820,6 +832,17 @@ pub fn decrypt_transport_message(
         .attachment(cid)
         .ok_or_else(|| SecurityError::Decrypt(format!("attachment {cid} not found")))?;
 
+    // Dialect-aware ciphertext candidates: CTE-binary parts (Java 2.6.1)
+    // and CTE-base64 parts (already decoded by StoredMessage::load) keep
+    // the bytes as-is; legacy parts with base64 TEXT kept raw (CTE 7bit)
+    // get decoded here. The GCM tag / CBC padding arbitrates.
+    let mut candidates = vec![content.data.clone()];
+    if let Ok(decoded) = osci_core::helper::base64::decode(&String::from_utf8_lossy(&content.data))
+        && decoded != content.data
+    {
+        candidates.push(decoded);
+    }
+
     for decrypter in decrypters {
         let session_key = match transport_uri.as_str() {
             KEY_TRANSPORT_RSA_1_5 => decrypter.decrypt_pkcs1v15(wrapped_key),
@@ -838,24 +861,43 @@ pub fn decrypt_transport_message(
         if session_key.len() != cipher.key_length() {
             continue;
         }
-        let mut inner = Vec::new();
-        let mut dr = match DecryptReader::new(&content.data[..], cipher, &session_key) {
-            Ok(dr) => dr,
-            Err(_e) => {
-                continue;
-            }
-        };
-        match dr.read_to_end(&mut inner) {
-            Ok(_) => {}
-            Err(_e) => {
-                continue;
+
+        // Full candidate first; legacy blobs can carry trailing bytes
+        // after the PKCS#7 padding, so block-boundary truncations are
+        // tried from the longest down (the GCM tag / padding arbitrates).
+        for ciphertext in &candidates {
+            let mut dr = match DecryptReader::new(&ciphertext[..], cipher, &session_key) {
+                Ok(dr) => dr,
+                Err(_) => continue,
+            };
+            let mut inner = Vec::new();
+            if dr.read_to_end(&mut inner).is_ok()
+                && !inner.is_empty()
+                && (inner.starts_with(b"MIME-Version") || inner.starts_with(b"<?xml"))
+            {
+                return Ok(inner);
             }
         }
-        if inner.is_empty() {
-            continue;
-        }
-        if inner.starts_with(b"MIME-Version") || inner.starts_with(b"<?xml") {
-            return Ok(inner);
+
+        // Legacy truncation fallback: for each base64-decoded candidate,
+        // try CBC stream lengths from the longest block boundary down.
+        // Only reached when the full-length attempts all failed.
+        for ciphertext in candidates.iter().rev() {
+            let blocks = ciphertext.len() / 16;
+            for keep_blocks in (1..blocks).rev() {
+                let ct = &ciphertext[..keep_blocks * 16];
+                let mut dr = match DecryptReader::new(ct, cipher, &session_key) {
+                    Ok(dr) => dr,
+                    Err(_) => continue,
+                };
+                let mut inner = Vec::new();
+                if dr.read_to_end(&mut inner).is_err() || inner.is_empty() {
+                    continue;
+                }
+                if inner.starts_with(b"MIME-Version") || inner.starts_with(b"<?xml") {
+                    return Ok(inner);
+                }
+            }
         }
     }
     Err(SecurityError::Decrypt(

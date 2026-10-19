@@ -77,7 +77,9 @@ Every layer is gated against the pinned reference:
 - [x] EncryptedData decryption pipelines
 - [x] Outbound content encryption (EncryptedData composition: AES-GCM/CBC,
   OAEP-SHA256/v1.5 key transport, multi-recipient) and transport-level
-  encryption (SOAPMessageEncrypted envelope) — see issue #1
+  encryption (SOAPMessageEncrypted envelope, **binary cipher part** per the
+  Java 2.6.1 dialect; reader also accepts the legacy base64-text dialect)
+  — see issues #1 and #2
 - [x] Dialog state machine (challenge/response, conversation; sequence is echo-compared only)
 - [x] Loopback + HTTP transports
 - [x] Sample program

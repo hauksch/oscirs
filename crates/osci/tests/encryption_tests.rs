@@ -315,3 +315,231 @@ fn encrypted_plaintext_matches_container_writer() {
     let decrypted = decrypt_all_encrypted_data(&xml, &decrypters).unwrap();
     assert_eq!(decrypted[0].plaintext, expected, "container XML shape");
 }
+
+/// Issue #2: the transport cipher part is written as RAW binary (Java
+/// 2.6.1 dialect) — CTE binary, octets of IV || ciphertext || tag, no
+/// base64 and no line breaking.
+#[test]
+fn transport_cipher_part_is_binary_dialect() {
+    let out = OutMessage {
+        kind: Some(MessageType::GetMessageId),
+        control_block: ControlBlock {
+            challenge: Some("Y2hhbGxlbmdl".into()),
+            conversation_id: Some("4711".into()),
+            response: None,
+            sequence_number: None,
+        },
+        ..Default::default()
+    };
+    let signed_stream =
+        osci_core::message::compose::compose_message(&out, "MIME_boundary").unwrap();
+    let recipient =
+        osci_crypto::Certificate::from_der(&cert_der("osci_manager_cipher_4096.pem")).unwrap();
+    let outer = encrypt_message_for(
+        &signed_stream,
+        &recipient,
+        &EncryptConfig::default(),
+        "MIME_boundary",
+    )
+    .unwrap();
+
+    let stored = osci_core::message::stored::StoredMessage::load(&outer).unwrap();
+    let part = &stored.attachments[0];
+    assert_eq!(part.content_id, "osci_enc");
+    assert_eq!(part.content_type, "application/octet-stream");
+    assert_eq!(part.encoding.as_deref(), Some("binary"));
+    // raw bytes kept: the framed length is the inner message + IV + tag
+    assert_eq!(
+        part.data.len(),
+        signed_stream.len() + 12 + 16,
+        "raw IV||ct||tag octets, not base64 text"
+    );
+    // and the first 12 bytes ARE the IV (byte-exact recovery below in
+    // transport_envelope_shape_and_roundtrip)
+}
+
+/// Issue #2 acceptance: oscirs decrypts a Java-written transport
+/// envelope. StrDel_Encrypted_cbc.osci is the reference stack's output
+/// (aes256-cbc + rsa-1_5, legacy base64-text dialect, inline
+/// test_osci-manager cert); the fixture is LF-only so both parts are
+/// extracted by byte surgery.
+#[test]
+fn java_written_transport_envelope_decrypts() {
+    let bytes = std::fs::read(common::message("StrDel_Encrypted_cbc.osci")).unwrap();
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+
+    // XML part: from the first part's blank line to the next boundary
+    let xml_start = text.find("<?xml").expect("xml decl");
+    let xml_end = text[xml_start..].find("\n--").unwrap() + xml_start;
+    let xml = text[xml_start..xml_end].to_string();
+
+    // osci_enc part: base64 text between its blank line and the next
+    // boundary
+    let enc_marker = "Content-ID: <osci_enc>";
+    let enc_pos = text.find(enc_marker).expect("osci_enc part");
+    let enc_body_start = text[enc_pos..].find("\n\n").unwrap() + enc_pos + 2;
+    let enc_end = text[enc_body_start..].find("\n--").unwrap() + enc_body_start;
+    let b64_text = text[enc_body_start..enc_end].to_string();
+
+    // parse sanity check; build the view with the raw base64 TEXT kept
+    // (the legacy dialect) — decrypt_transport_message decodes it
+    let doc = osci_core::xml::parser::parse(&xml).unwrap();
+    assert!(doc.root.elements().count() > 0);
+    let b64_bytes = b64_text.into_bytes();
+    let attachments = vec![osci_core::message::stored::LoadedAttachment {
+        content_id: "osci_enc".into(),
+        content_type: "text/base64".into(),
+        encoding: Some("7bit".into()),
+        data: b64_bytes,
+    }];
+    let view = osci::security::StoredMessageLike {
+        xml: xml.as_bytes(),
+        attachments: &attachments,
+    };
+
+    // the fixture's inline cert is the alt/test_osci-manager key pair
+    let manager = RsaDecrypter::from_pem_dump(
+        corpus()
+            .join("certs/alt/test_osci-manager_cypher.pem")
+            .to_str()
+            .unwrap(),
+    )
+    .unwrap();
+
+    let inner = decrypt_transport_message(&view, &[&manager]).unwrap();
+    // the inner message is a complete signed StoreDelivery
+    assert!(inner.starts_with(b"MIME-Version"), "inner MIME stream");
+    let stored = osci_core::message::stored::StoredMessage::load(&inner).unwrap();
+    assert_eq!(stored.message.kind, Some(MessageType::StoreDelivery));
+    assert!(
+        !stored.attachments.is_empty(),
+        "inner attachments recovered"
+    );
+}
+
+/// Dialect-compat: a legacy base64-text cipher part (CTE 7bit +
+/// text/base64, the pre-2.6.1 fixture dialect) decrypts as well as the
+/// binary dialect — the whole transport envelope is re-framed, then
+/// loaded and decrypted through the normal path.
+#[test]
+fn legacy_base64_text_dialect_accepted() {
+    let inner_signed = b"MIME-Version: 1.0\r\nContent-Type: text/xml\r\n\r\n<xml/>";
+    let recipient =
+        osci_crypto::Certificate::from_der(&cert_der("osci_manager_cipher_4096.pem")).unwrap();
+    let outer = encrypt_message_for(
+        inner_signed,
+        &recipient,
+        &EncryptConfig::default(),
+        "MIME_boundary",
+    )
+    .unwrap();
+
+    // extract the binary part content from the outer stream...
+    let marker = b"Content-ID: <osci_enc>\r\n\r\n";
+    let content_start = outer
+        .windows(marker.len())
+        .position(|w| w == marker)
+        .unwrap()
+        + marker.len();
+    eprintln!(
+        "DBG content_start={} outer_len={}",
+        content_start,
+        outer.len()
+    );
+    let content_end = outer[content_start..]
+        .windows(4)
+        .position(|w| w == b"\r\n--")
+        .map(|i| content_start + i)
+        .unwrap_or_else(|| {
+            eprintln!(
+                "DBG not found; outer tail: {:?}",
+                String::from_utf8_lossy(&outer[outer.len().saturating_sub(60)..])
+            );
+            panic!("no closing boundary after content_start");
+        });
+    let framed = outer[content_start..content_end].to_vec();
+
+    // ...and re-frame the whole envelope with a legacy dialect part:
+    // base64 TEXT with CTE 7bit and Content-Type text/base64
+    let mut legacy = Vec::new();
+    legacy.extend_from_slice(
+        format!(
+            "MIME-Version: 1.0\r\nContent-Type: Multipart/Related; boundary={boundary}; type=text/xml\r\n",
+            boundary = "MIME_boundary"
+        )
+        .as_bytes(),
+    );
+    legacy.extend_from_slice(
+        b"\r\n--MIME_boundary\r\nContent-Type: text/xml; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\nContent-ID: <osci@message>\r\n\r\n",
+    );
+    // reuse the outer XML part (up to its Content-Length framing)
+    let xml_marker = b"Content-ID: <osci@message>\r\nContent-Length: ";
+    let hdr_pos = outer
+        .windows(xml_marker.len())
+        .position(|w| w == xml_marker)
+        .expect("xml part header");
+    let body_start = hdr_pos
+        + xml_marker.len()
+        + outer[hdr_pos + xml_marker.len()..]
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .expect("header end")
+        + 4;
+    let xml_end = outer[body_start..]
+        .windows(4)
+        .position(|w| w == b"\r\n--")
+        .map(|i| body_start + i)
+        .unwrap();
+    legacy.extend_from_slice(&outer[body_start..xml_end]);
+    legacy.extend_from_slice(
+        b"\r\n--MIME_boundary\r\nContent-Type: text/base64\r\nContent-Transfer-Encoding: 7bit\r\nContent-ID: <osci_enc>\r\n\r\n",
+    );
+    legacy.extend_from_slice(
+        &base64::engine::general_purpose::STANDARD
+            .encode(&framed)
+            .into_bytes(),
+    );
+    legacy.extend_from_slice(b"\r\n--MIME_boundary--\r\n");
+
+    let stored = osci_core::message::stored::StoredMessage::load(&legacy).unwrap();
+    let attachments: Vec<osci_core::message::stored::LoadedAttachment> = stored
+        .attachments
+        .iter()
+        .map(|a| osci_core::message::stored::LoadedAttachment {
+            content_id: a.content_id.clone(),
+            content_type: a.content_type.clone(),
+            encoding: a.encoding.clone(),
+            data: a.data.clone(),
+        })
+        .collect();
+    // legacy CTE 7bit keeps the base64 TEXT raw
+    assert_eq!(attachments[0].encoding.as_deref(), Some("7bit"));
+    assert!(String::from_utf8(attachments[0].data.clone()).is_ok());
+
+    let manager = RsaDecrypter::from_pem_dump(
+        corpus()
+            .join("certs/osci_manager_cipher_4096.pem")
+            .to_str()
+            .unwrap(),
+    )
+    .unwrap();
+    let view = osci::security::StoredMessageLike {
+        xml: &stored.xml,
+        attachments: &attachments,
+    };
+    let inner = match decrypt_transport_message(&view, &[&manager]) {
+        Ok(inner) => inner,
+        Err(e) => panic!(
+            "legacy dialect decrypt failed: {e}; attachments: {:?}",
+            attachments
+                .iter()
+                .map(|a| (a.content_id.clone(), a.encoding.clone(), a.data.len()))
+                .collect::<Vec<_>>()
+        ),
+    };
+    assert_eq!(
+        &inner[..],
+        inner_signed,
+        "inner recovered via legacy dialect"
+    );
+}
