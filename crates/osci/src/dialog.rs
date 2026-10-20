@@ -9,8 +9,9 @@ use osci_core::message::{FeedbackEntry, MessageType, OsciMessage};
 use osci_core::soap::ControlBlock;
 use osci_core::xml::parser;
 use osci_crypto::Certificate;
-use osci_crypto::software::Signer;
+use osci_crypto::software::{Decrypter, RsaDecrypter, Signer};
 
+use crate::security::{StoredMessageLike, VerificationReport, decrypt_transport_message};
 use crate::sign::{SignParams, sign_message_xml};
 
 #[derive(Debug, thiserror::Error)]
@@ -25,10 +26,29 @@ pub enum DialogError {
     Composition(String),
     #[error("signing: {0}")]
     Signing(String),
+    #[error("verification: {0}")]
+    Verification(String),
+    #[error("decryption: {0}")]
+    Decryption(String),
     #[error("transport: {0}")]
     Transport(String),
     #[error("parse: {0}")]
     Parse(String),
+}
+
+/// How strictly `Dialog::send` treats the response's transport
+/// signature (the intermediary's `SupplierSignature`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SignaturePolicy {
+    /// Do not verify response signatures.
+    Ignore,
+    /// Verify signatures when present and fail on invalid ones;
+    /// unsigned responses are accepted (default, interoperable).
+    #[default]
+    VerifyIfPresent,
+    /// Require at least one valid signature; unsigned responses are
+    /// rejected.
+    Require,
 }
 
 /// Client dialog state + configuration. Replaces the Java DialogHandler's
@@ -43,6 +63,13 @@ pub struct Dialog {
     /// signed stream is wrapped into a SOAPMessageEncrypted envelope as
     /// the last step before sending.
     transport_encryption: Option<TransportEncryption>,
+    /// Keys for unwrapping transport-encrypted responses.
+    response_decrypters: Vec<RsaDecrypter>,
+    /// Signature-verification policy for responses.
+    signature_policy: SignaturePolicy,
+    /// Verification report of the last response (when the policy
+    /// verifies).
+    last_response_report: Option<VerificationReport>,
 }
 
 /// One content-encryption request for [`Dialog::send_encrypted`].
@@ -67,6 +94,9 @@ impl Dialog {
             transport_encryption: None,
             signer: None,
             certificate_id: None,
+            response_decrypters: Vec::new(),
+            signature_policy: SignaturePolicy::default(),
+            last_response_report: None,
         }
     }
 
@@ -89,6 +119,28 @@ impl Dialog {
             config,
         });
         self
+    }
+
+    /// Keys for opening transport-encrypted responses (the client's own
+    /// cipher certificates): when a response arrives as a
+    /// SOAPMessageEncrypted envelope, `send` unwraps it before parsing.
+    pub fn with_response_decrypters(mut self, decrypters: Vec<RsaDecrypter>) -> Self {
+        self.response_decrypters = decrypters;
+        self
+    }
+
+    /// Set how strictly the response's transport signature is verified
+    /// (default [`SignaturePolicy::VerifyIfPresent`]).
+    pub fn set_signature_policy(&mut self, policy: SignaturePolicy) -> &mut Self {
+        self.signature_policy = policy;
+        self
+    }
+
+    /// The verification report of the last response, when the signature
+    /// policy verified it. Each [`crate::SignatureResult`] also carries
+    /// the weak-key/algorithm verdicts.
+    pub fn last_response_report(&self) -> Option<&VerificationReport> {
+        self.last_response_report.as_ref()
     }
 
     /// Convenience: encrypt `request.inner` for the given recipients
@@ -278,7 +330,49 @@ impl Dialog {
 
         let stored =
             StoredMessage::load(&response_bytes).map_err(|e| DialogError::Parse(e.to_string()))?;
+        // a transport-encrypted response must be unwrapped before the
+        // control block is reachable
+        let stored = match self.transport_envelope(&stored)? {
+            Some(inner) => {
+                StoredMessage::load(&inner).map_err(|e| DialogError::Parse(e.to_string()))?
+            }
+            None => stored,
+        };
         self.check_response(&stored)
+    }
+
+    /// When the stored message is a SOAPMessageEncrypted transport
+    /// envelope, decrypt it with the configured response decrypters and
+    /// return the inner MIME stream.
+    fn transport_envelope(&self, stored: &StoredMessage) -> Result<Option<Vec<u8>>, DialogError> {
+        let doc = parser::parse(&String::from_utf8_lossy(&stored.xml))
+            .map_err(|e| DialogError::Parse(e.to_string()))?;
+        let is_envelope = osci_core::soap::find_header(&doc).is_none_or(|header| {
+            // envelope: no control block, the body is the EncryptedData
+            let body = doc.root.elements().find(|e| e.local == "Body");
+            body.is_some_and(|body| body.elements().any(|e| e.local == "EncryptedData"))
+                && header.elements().all(|e| e.local != "ControlBlock")
+        });
+        if !is_envelope {
+            return Ok(None);
+        }
+        if self.response_decrypters.is_empty() {
+            return Err(DialogError::Decryption(
+                "transport-encrypted response but no response decrypters configured".into(),
+            ));
+        }
+        let view = StoredMessageLike {
+            xml: &stored.xml,
+            attachments: &stored.attachments,
+        };
+        let refs: Vec<&dyn Decrypter> = self
+            .response_decrypters
+            .iter()
+            .map(|d| d as &dyn Decrypter)
+            .collect();
+        decrypt_transport_message(&view, &refs)
+            .map(Some)
+            .map_err(|e| DialogError::Decryption(e.to_string()))
     }
 
     fn check_response(&mut self, stored: &StoredMessage) -> Result<OsciMessage, DialogError> {
@@ -288,6 +382,7 @@ impl Dialog {
         let response_block = control_block_of(&doc)
             .ok_or_else(|| DialogError::Parse("no control block in response".into()))?;
         self.check_control_block(&response_block)?;
+        self.check_response_signatures(stored)?;
 
         // feedback error codes: anything not starting with 0 (and not the
         // certificate-validation 37xx tolerance of the reference tests)
@@ -301,6 +396,51 @@ impl Dialog {
             }
         }
         Ok(message)
+    }
+
+    /// Apply the signature policy to the response and record the report.
+    fn check_response_signatures(&mut self, stored: &StoredMessage) -> Result<(), DialogError> {
+        let attachments: Vec<(String, Vec<u8>)> = stored
+            .attachments
+            .iter()
+            .map(|a| (a.content_id.clone(), a.data.clone()))
+            .collect();
+        let verified = match crate::security::verify_message(
+            &String::from_utf8_lossy(&stored.xml),
+            &attachments,
+        ) {
+            Ok(report) => Some(report),
+            // policy-relevant distinction: no signature element at all
+            Err(crate::security::SecurityError::NoSignatures) => None,
+            Err(e) => {
+                return Err(DialogError::Verification(e.to_string()));
+            }
+        };
+        match (self.signature_policy, verified) {
+            (_, Some(report)) => {
+                if !report.all_valid() {
+                    return Err(DialogError::Verification(format!(
+                        "invalid response signature: {report:?}"
+                    )));
+                }
+                if self.signature_policy == SignaturePolicy::Require && report.signatures.is_empty()
+                {
+                    return Err(DialogError::Verification(
+                        "policy requires a response signature".into(),
+                    ));
+                }
+                self.last_response_report = Some(report);
+            }
+            (SignaturePolicy::Require, None) => {
+                return Err(DialogError::Verification(
+                    "policy requires a response signature".into(),
+                ));
+            }
+            (_, None) => {
+                self.last_response_report = None;
+            }
+        }
+        Ok(())
     }
 }
 

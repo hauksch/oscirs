@@ -840,6 +840,7 @@ dependencies = [
  "osci-core",
  "osci-crypto",
  "osci-transport",
+ "p384",
  "rand 0.8.8",
  "test-utils",
  "thiserror",

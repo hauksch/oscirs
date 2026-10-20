@@ -109,7 +109,7 @@ pub fn digest_bytes(uri: &str, data: &[u8]) -> Option<Vec<u8>> {
         | SIGNATURE_RSA_SHA256
         | SIGNATURE_RSA_SHA256_PSS
         | SIGNATURE_ECDSA_SHA256 => Some(Sha256::digest(data).to_vec()),
-        DIGEST_SHA384 => Some(Sha384::digest(data).to_vec()),
+        DIGEST_SHA384 | SIGNATURE_ECDSA_SHA384 => Some(Sha384::digest(data).to_vec()),
         DIGEST_SHA512
         | SIGNATURE_RSA_SHA512
         | SIGNATURE_RSA_SHA512_PSS

@@ -174,6 +174,27 @@ pub fn verify_ec_p256(
     }
 }
 
+/// Verify a raw r||s P-384 ECDSA signature (the digest the OSCI method
+/// URIs name is the hash input; P-384 keys accept SHA-384 and SHA-256,
+/// mirroring `sign_ec_p384`).
+pub fn verify_ec_p384(
+    key: &p384::ecdsa::VerifyingKey,
+    data: &[u8],
+    signature: &[u8],
+    algorithm: &str,
+) -> Result<(), CryptoError> {
+    use p384::ecdsa::signature::Verifier as _;
+    match algorithm {
+        crate::algorithms::SIGNATURE_ECDSA_SHA384 | crate::algorithms::SIGNATURE_ECDSA_SHA256 => {
+            let sig = p384::ecdsa::Signature::from_slice(signature)
+                .map_err(|_| CryptoError::Verification)?;
+            key.verify(data, &sig)
+                .map_err(|_| CryptoError::Verification)
+        }
+        other => Err(CryptoError::UnsupportedAlgorithm(other.to_string())),
+    }
+}
+
 // ------------------------------------------------------------ wrap / unwrap
 
 /// Wrap a session key for `cert` (Java `Crypto.doRSAEncryption`): OAEP by

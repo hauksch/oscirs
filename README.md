@@ -64,9 +64,13 @@ Every layer is gated against the pinned reference:
 - [x] SwapBuffer (RAM → AES-GCM-encrypted temp file, repeatable reads)
 - [x] XXE-safe XML tree parser (DOCTYPE rejected, Xerces normalization)
 - [x] Restricted C14N 1.0 canonicalizer with inline digesting (byte-exact vs reference)
-- [x] Signer/Decrypter SPI + software RSA (PSS/v1.5); ECDSA raw r‖s sign primitives only (not wired into message verification)
+- [x] Signer/Decrypter SPI + software RSA (PSS/v1.5) and ECDSA P-256/P-384
+  verification wired into the document pipeline (signing side RSA)
 - [x] Algorithm registry (all digests incl. SHA-3/RIPEMD-160, AES-GCM/CBC, 3DES, OAEP/v1.5)
-- [x] Weak-key policy (all `TestCrypto` dates)
+- [x] Weak-key policy (all `TestCrypto` dates), surfaced per signature in
+  `SignatureResult` (`key_weak` / `algorithm_outdated` / key facts) and
+  enforced via `Dialog::set_signature_policy` (`require_strong` semantics
+  through `SignatureResult::strong_and_valid`)
 - [x] Streaming symmetric ciphers (`[IV][ct]` wire format, tag verification)
 - [x] SOAP headers (ControlBlock, certificate headers, QualityOfTimestamp, DesiredLanguages, FeatureDescription, custom)
 - [x] All 24 message types: recognition, parse, compose (**schema-enforced**:
@@ -85,7 +89,12 @@ Every layer is gated against the pinned reference:
   encryption (SOAPMessageEncrypted envelope, **binary cipher part** per the
   Java 2.6.1 dialect; reader also accepts the legacy base64-text dialect)
   — see issues #1 and #2
-- [x] Dialog state machine (challenge/response, conversation; sequence is echo-compared only)
+- [x] Dialog state machine (challenge/response, conversation; sequence is
+  echo-compared only), with response-side security: transport-encrypted
+  responses are unwrapped (`with_response_decrypters`) and response
+  signatures verified per `SignaturePolicy`
+  (`Ignore` / `VerifyIfPresent` default / `Require`; the report is
+  available via `Dialog::last_response_report`)
 - [x] Loopback + HTTP transports
 - [x] Sample program
 - [ ] RSA-PSS P-384 ECDSA signing path (P-256 verified; P-384 sign trait ready)

@@ -12,6 +12,6 @@ pub mod software;
 pub mod symcipher;
 pub mod weak;
 
-pub use certificate::Certificate;
+pub use certificate::{Certificate, EcPublicKey, KeyKind};
 pub use error::CryptoError;
 pub use rsa;

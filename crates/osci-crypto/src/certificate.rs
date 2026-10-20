@@ -11,6 +11,13 @@ pub enum KeyKind {
     Ec { bits: usize },
 }
 
+/// Curve-resolved EC verifying key of a certificate.
+#[derive(Debug, Clone)]
+pub enum EcPublicKey {
+    P256(p256::ecdsa::VerifyingKey),
+    P384(p384::ecdsa::VerifyingKey),
+}
+
 #[derive(Debug, Clone)]
 pub struct Certificate {
     der: Vec<u8>,
@@ -129,6 +136,35 @@ impl Certificate {
         use rsa::pkcs8::DecodePublicKey;
         rsa::RsaPublicKey::from_public_key_der(self.spki_der())
             .map_err(|e| CryptoError::Certificate(format!("rsa key: {e}")))
+    }
+
+    /// The EC public key, curve-resolved by the certificate's key size
+    /// (P-256 or P-384; other curves have no verifying-key mapping here).
+    pub fn ec_public_key(&self) -> Result<EcPublicKey, CryptoError> {
+        use x509_parser::prelude::FromDer as _;
+        let (_, spki) = x509_parser::x509::SubjectPublicKeyInfo::from_der(self.spki_der())
+            .map_err(|e| CryptoError::Certificate(format!("spki: {e}")))?;
+        let point = match spki.parsed() {
+            Ok(x509_parser::public_key::PublicKey::EC(point)) => point,
+            other => {
+                return Err(CryptoError::Certificate(format!(
+                    "not an EC key: {other:?}"
+                )));
+            }
+        };
+        match self.kind {
+            KeyKind::Ec { bits: 256 } => Ok(EcPublicKey::P256(
+                p256::ecdsa::VerifyingKey::from_sec1_bytes(point.data())
+                    .map_err(|e| CryptoError::Certificate(format!("p256 key: {e}")))?,
+            )),
+            KeyKind::Ec { bits: 384 } => Ok(EcPublicKey::P384(
+                p384::ecdsa::VerifyingKey::from_sec1_bytes(point.data())
+                    .map_err(|e| CryptoError::Certificate(format!("p384 key: {e}")))?,
+            )),
+            other => Err(CryptoError::Certificate(format!(
+                "no verifying key for {other:?}"
+            ))),
+        }
     }
 
     pub fn not_before(&self) -> Option<DateTime<Utc>> {

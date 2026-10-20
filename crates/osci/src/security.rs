@@ -57,14 +57,29 @@ pub struct SignatureResult {
     /// Id of the certificate element the signature's key refers to.
     pub certificate_id: Option<String>,
     pub method: String,
-    /// RSA verification over the canonical SignedInfo bytes.
+    /// RSA/EC verification over the canonical SignedInfo bytes.
     pub signature_valid: bool,
     pub references: Vec<ReferenceResult>,
+    /// Signing key facts and the weak-policy verdicts (Java
+    /// `SignatureCheckResult`): `key_weak` per `TestCrypto.isWeakKey`,
+    /// `algorithm_outdated` per the algorithm out-dating table. Both use
+    /// the pinned reference date (the OSCI "actual date"), `None` when
+    /// the key/algorithm could not be determined.
+    pub key_algorithm: Option<String>,
+    pub key_size_bits: Option<usize>,
+    pub key_weak: Option<bool>,
+    pub algorithm_outdated: Option<bool>,
 }
 
 impl SignatureResult {
     pub fn all_valid(&self) -> bool {
         self.signature_valid && self.references.iter().all(|r| r.checked != Some(false))
+    }
+
+    /// True when the signature verifies AND key and algorithm are
+    /// known and not flagged weak/outdated.
+    pub fn strong_and_valid(&self) -> bool {
+        self.all_valid() && self.key_weak == Some(false) && self.algorithm_outdated == Some(false)
     }
 }
 
@@ -333,7 +348,17 @@ pub fn verify_document(
             method: view.attr("method").unwrap_or_default(),
             signature_valid: false,
             references: Vec::new(),
+            key_algorithm: None,
+            key_size_bits: None,
+            key_weak: None,
+            algorithm_outdated: None,
         };
+        // weak-policy verdicts (report-only; Java pins the signature
+        // date to the reference "actual date")
+        result.algorithm_outdated = Some(osci_crypto::weak::is_weak_algorithm(
+            Some(osci_crypto::weak::actual_date()),
+            &result.method,
+        ));
         // A signature without a (gated) SignedInfo capture is unverifiable
         // and stays in the report as invalid.
         let Some(signed_info) = signed_info else {
@@ -352,11 +377,31 @@ pub fn verify_document(
             signatures.push(result);
             continue;
         };
-        let Ok(public) = cert.rsa_public_key() else {
-            signatures.push(result);
-            continue;
+        result.key_algorithm = Some(cert.key_algorithm().to_string());
+        result.key_size_bits = Some(cert.key_size());
+        result.key_weak = Some(osci_crypto::weak::is_weak_key(
+            Some(osci_crypto::weak::actual_date()),
+            cert.key_algorithm(),
+            cert.key_size(),
+        ));
+        result.signature_valid = match cert.key_kind() {
+            osci_crypto::KeyKind::Rsa { .. } => cert
+                .rsa_public_key()
+                .ok()
+                .and_then(|public| verify_rsa(&public, signed_info, &value, &result.method).ok())
+                .is_some(),
+            osci_crypto::KeyKind::Ec { .. } => match cert.ec_public_key() {
+                Ok(osci_crypto::EcPublicKey::P256(key)) => {
+                    osci_crypto::software::verify_ec_p256(&key, signed_info, &value, &result.method)
+                        .is_ok()
+                }
+                Ok(osci_crypto::EcPublicKey::P384(key)) => {
+                    osci_crypto::software::verify_ec_p384(&key, signed_info, &value, &result.method)
+                        .is_ok()
+                }
+                Err(_) => false,
+            },
         };
-        result.signature_valid = verify_rsa(&public, signed_info, &value, &result.method).is_ok();
 
         for reference in view.references() {
             result

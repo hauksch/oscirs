@@ -25,7 +25,7 @@ pub use osci_transport::{LoopbackTransport, Transport, TransportError};
 /// Convenience prelude: `use osci::prelude::*;` pulls in everything an
 /// OSCI client integration typically names.
 pub mod prelude {
-    pub use super::dialog::{Dialog, DialogError};
+    pub use super::dialog::{Dialog, DialogError, SignaturePolicy};
     pub use super::security::{
         DecryptedContent, SecurityError, SignatureResult, VerificationReport,
         decrypt_all_encrypted_data, verify_document, verify_message,

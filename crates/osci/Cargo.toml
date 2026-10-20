@@ -16,4 +16,5 @@ thiserror = "2.0.21"
 
 [dev-dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
+p384 = { version = "0.13", features = ["pkcs8", "pem"] }
 test-utils = { path = "../test-utils" }
