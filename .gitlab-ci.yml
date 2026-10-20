@@ -24,6 +24,20 @@ rust-test:
     key: rust-test
     paths: [.cargo-cache/registry, target/]
 
+# Issue #3 gate: composed wire traffic validates against the normative
+# OSCI schemas (scripts/xsd-validate.sh; the cargo gate skips silently
+# when the validator is absent, this job makes it authoritative in CI).
+xsd-validate:
+  stage: test
+  image: rust:1.98-slim
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends python3-minimal python3-lxml
+  script:
+    - cargo test --locked -p osci --test xsd_gate -- --nocapture
+  cache:
+    key: xsd-validate
+    paths: [.cargo-cache/registry, target/]
+
 # Dependency audit: known-vulnerability check against the committed
 # lockfile. Tool version pinned; RUSTSEC-2023-0071 (rsa Marvin) is a
 # documented accepted risk for the legacy v1.5 interop path.

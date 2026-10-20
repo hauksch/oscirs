@@ -287,6 +287,7 @@ fn response_compose_roundtrip() {
     let out = OutMessage {
         kind: Some(MessageType::ResponseToStoreDelivery),
         control_block: ControlBlock {
+            conversation_id: Some("42".into()),
             sequence_number: Some(2),
             response: Some("cmVzcG9uc2U=".into()),
             ..Default::default()

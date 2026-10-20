@@ -181,7 +181,7 @@ fn store_delivery(text: String, payload: Vec<u8>) -> OutMessage {
     let mut out = OutMessage {
         kind: Some(MessageType::StoreDelivery),
         control_block: ControlBlock {
-            conversation_id: Some("prop-dialog".into()),
+            conversation_id: Some("4711".into()),
             sequence_number: Some(1),
             response: None,
             challenge: Some("Y2hhbGxlbmdl".into()),

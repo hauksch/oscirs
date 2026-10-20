@@ -129,10 +129,26 @@ impl Dialog {
         if self.control_block.challenge.is_none() {
             self.control_block.challenge = Some(self.fresh_challenge());
         }
-        if !matches!(kind, MessageType::InitDialog) && self.control_block.sequence_number.is_none()
+        if !matches!(kind, MessageType::InitDialog)
+            && osci_core::message::compose::control_block_allows_sequence(kind)
+            && self.control_block.sequence_number.is_none()
         {
             self.control_block.sequence_number = Some(0);
         }
+    }
+
+    /// The dialog state as the outbound control block of `kind`: fields
+    /// the kind's ControlBlock schema prohibits are masked out of the
+    /// copy (the dialog state itself is kept for the following rounds).
+    fn outbound_block(&self, kind: MessageType) -> ControlBlock {
+        let mut block = self.control_block.clone();
+        if !osci_core::message::compose::control_block_allows_conversation(kind) {
+            block.conversation_id = None;
+        }
+        if !osci_core::message::compose::control_block_allows_sequence(kind) {
+            block.sequence_number = None;
+        }
+        block
     }
 
     /// Validate a response control block against the dialog state - port
@@ -151,7 +167,6 @@ impl Dialog {
                     .all(|c| c.is_ascii_graphic() && !matches!(c, '"' | '<' | '>' | '&'))
         };
         for (what, value) in [
-            ("conversation id", &response.conversation_id),
             ("challenge", &response.challenge),
             ("response", &response.response),
         ] {
@@ -160,6 +175,14 @@ impl Dialog {
             {
                 return Err(detail(&format!("malformed {what} in response")));
             }
+        }
+        // the schema types ConversationId as osci:Number (\d+); a
+        // non-numeric value would make the next signed request
+        // schema-invalid, so reject it at adoption time
+        if let Some(value) = &response.conversation_id
+            && !value.chars().all(|c| c.is_ascii_digit())
+        {
+            return Err(detail("malformed conversation id in response"));
         }
         if let Some(challenge) = &self.control_block.challenge
             && response.response.as_deref() != Some(challenge.as_str())
@@ -202,7 +225,7 @@ impl Dialog {
             .kind
             .ok_or_else(|| DialogError::Composition("kind missing".into()))?;
         self.prepare_outbound(kind);
-        out.control_block = self.control_block.clone();
+        out.control_block = self.outbound_block(kind);
 
         let stream =
             compose_message(out, boundary).map_err(|e| DialogError::Composition(e.to_string()))?;
@@ -223,6 +246,9 @@ impl Dialog {
                         digest: None,
                         certificate_id,
                         attachments,
+                        header_element: Some(osci_core::message::compose::signature_header_name(
+                            kind,
+                        )),
                     },
                 )
                 .map_err(|e| DialogError::Signing(e.to_string()))?

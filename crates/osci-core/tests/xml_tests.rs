@@ -58,6 +58,15 @@ fn rejects_doctype() {
 }
 
 #[test]
+fn parses_with_leading_bom() {
+    // A BOM is legal XML; quick-xml's offsets skip it, which used to
+    // desynchronize the prolog slice (char-boundary panic, found by the
+    // xml_parse_is_total proptest).
+    let doc = parser::parse("\u{feff}<a/>").unwrap();
+    assert_eq!(doc.root.local, "a");
+}
+
+#[test]
 fn rejects_unknown_entities() {
     assert!(parser::parse("<a>&unknown;</a>").is_err());
 }

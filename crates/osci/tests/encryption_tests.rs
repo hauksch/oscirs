@@ -31,6 +31,26 @@ fn cert_der(pem: &str) -> Vec<u8> {
     osci_core::helper::base64::decode(&b64).unwrap()
 }
 
+/// Legal NonIntermediaryCertificates for a StoreDelivery (the schema
+/// makes the addressee cipher certificate mandatory).
+fn store_delivery_certs() -> Vec<osci_core::message::compose::OutCertEntry> {
+    use osci_core::message::compose::OutCertEntry;
+    vec![
+        OutCertEntry {
+            role: CertRole::Originator,
+            use_: CertUse::Cipher,
+            id: "originator_cipher".into(),
+            der: cert_der("alice_cipher_4096.pem"),
+        },
+        OutCertEntry {
+            role: CertRole::Addressee,
+            use_: CertUse::Cipher,
+            id: "addressee_cipher".into(),
+            der: cert_der("bob_cipher_4096.pem"),
+        },
+    ]
+}
+
 fn inner_container() -> OutContentContainer {
     OutContentContainer {
         id: "contentcontainer_inner".into(),
@@ -97,6 +117,9 @@ fn content_encryption_roundtrips_all_combinations() {
                     conversation_id: Some("42".into()),
                     response: None,
                 },
+                // StoreDelivery's schema requires NonIntermediaryCertificates
+                // with the addressee cipher certificate (issue #3 model)
+                non_intermediary_certificates: store_delivery_certs(),
                 encrypted_data: vec![enc],
                 ..Default::default()
             };
@@ -187,6 +210,7 @@ fn signed_and_encrypted_verifies_and_tamper_detected() {
             digest: None,
             certificate_id: "originator_signature".into(),
             attachments: &[],
+            header_element: None,
         },
     )
     .unwrap();
@@ -214,7 +238,7 @@ fn transport_envelope_shape_and_roundtrip() {
             challenge: Some("Y2hhbGxlbmdl".into()),
             conversation_id: Some("4711".into()),
             response: None,
-            sequence_number: None,
+            sequence_number: Some(0),
         },
         ..Default::default()
     };
@@ -305,7 +329,12 @@ fn encrypted_plaintext_matches_container_writer() {
 
     let out = OutMessage {
         kind: Some(MessageType::StoreDelivery),
-        control_block: ControlBlock::default(),
+        control_block: ControlBlock {
+            challenge: Some("Y2hhbGxlbmdl".into()),
+            sequence_number: Some(1),
+            ..Default::default()
+        },
+        non_intermediary_certificates: store_delivery_certs(),
         encrypted_data: vec![enc],
         ..Default::default()
     };
@@ -327,7 +356,7 @@ fn transport_cipher_part_is_binary_dialect() {
             challenge: Some("Y2hhbGxlbmdl".into()),
             conversation_id: Some("4711".into()),
             response: None,
-            sequence_number: None,
+            sequence_number: Some(0),
         },
         ..Default::default()
     };

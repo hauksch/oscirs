@@ -100,6 +100,27 @@ pub enum CertUse {
     Signature,
 }
 
+/// Position of a (use, role) certificate entry in the canonical
+/// NonIntermediaryCertificates child sequence (issue #3, from the
+/// NonIntermediaryCertificatesTemplate in order.xsd): cipher originator,
+/// cipher other authors, cipher addressee, cipher other readers,
+/// signature originator, signature other authors, signature addressee.
+pub fn cert_order(use_: CertUse, role: CertRole) -> u8 {
+    match (use_, role) {
+        (CertUse::Cipher, CertRole::Originator) => 0,
+        (CertUse::Cipher, CertRole::OtherAuthor) => 1,
+        (CertUse::Cipher, CertRole::Addressee) => 2,
+        (CertUse::Cipher, CertRole::OtherReader) => 3,
+        (CertUse::Signature, CertRole::Originator) => 4,
+        (CertUse::Signature, CertRole::OtherAuthor) => 5,
+        (CertUse::Signature, CertRole::Addressee) => 6,
+        // SignatureCertificateOtherReader does not exist in any schema;
+        // Intermediary entries live in IntermediaryCertificates, never in
+        // NonIntermediaryCertificates - both sort last
+        _ => u8::MAX,
+    }
+}
+
 /// Dialog state carried on the wire.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ControlBlock {
@@ -424,7 +445,10 @@ impl<W: std::io::Write> Composer<W> {
                     self.out,
                     "<osci:NonIntermediaryCertificates{NS_BLOCK} Id=\"nonintermediarycertificates\" soap:actor=\"{ACTOR_NONE}\" soap:mustUnderstand=\"1\">"
                 )?;
-                for (role, use_, entry) in entries {
+                // canonical child sequence (issue #3), stable within a slot
+                let mut ordered: Vec<&(CertRole, CertUse, CertEntry)> = entries.iter().collect();
+                ordered.sort_by_key(|(role, use_, _)| cert_order(*use_, *role));
+                for (role, use_, entry) in ordered {
                     self.cert_entry(*role, *use_, entry)?;
                 }
                 write!(self.out, "</osci:NonIntermediaryCertificates>")
@@ -504,17 +528,17 @@ impl<W: std::io::Write> Composer<W> {
             write!(self.out, " MinChunkSize=\"{v}\"")?;
         }
         write!(self.out, ">")?;
-        if !fd.features.is_empty() {
-            write!(self.out, "<osci2017:SupportedFeatures>")?;
-            for (key, version) in &fd.features {
-                write!(self.out, "<osci2017:Feature Key=\"")?;
-                escape_attr(key, &mut self.out)?;
-                write!(self.out, "\" Version=\"")?;
-                escape_attr(version, &mut self.out)?;
-                write!(self.out, "\"></osci2017:Feature>")?;
-            }
-            write!(self.out, "</osci2017:SupportedFeatures>")?;
+        // the 2017 EFFI schema: SupportedFeatures (with at least one
+        // Feature) is mandatory inside FeatureDescription
+        write!(self.out, "<osci2017:SupportedFeatures>")?;
+        for (key, version) in &fd.features {
+            write!(self.out, "<osci2017:Feature Key=\"")?;
+            escape_attr(key, &mut self.out)?;
+            write!(self.out, "\" Version=\"")?;
+            escape_attr(version, &mut self.out)?;
+            write!(self.out, "\"></osci2017:Feature>")?;
         }
+        write!(self.out, "</osci2017:SupportedFeatures>")?;
         write!(self.out, "</osci2017:FeatureDescription>")
     }
 

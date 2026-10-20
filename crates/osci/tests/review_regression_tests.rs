@@ -149,8 +149,10 @@ fn deep_nesting_rejected() {
     );
 }
 
-/// B: hostile control-block values adopted from a response are escaped on
-/// the next compose - they cannot smuggle XML into the signed request.
+/// B: hostile control-block values adopted from a response cannot
+/// smuggle XML into the next signed request - the ConversationId is
+/// rejected outright (the schema types it as a number), everything else
+/// is escaped.
 #[test]
 fn hostile_control_block_values_are_escaped() {
     use osci_core::message::MessageType;
@@ -158,17 +160,34 @@ fn hostile_control_block_values_are_escaped() {
     use osci_core::soap::ControlBlock;
 
     let hostile = r#"x" soap:evil="1" /><osci:Evil/><!"#;
-    let out = OutMessage {
+
+    // ConversationId: rejected before anything is written (issue #3
+    // schema enforcement - osci:Number)
+    let rejected = OutMessage {
         kind: Some(MessageType::GetMessageId),
         control_block: ControlBlock {
             conversation_id: Some(hostile.into()),
-            sequence_number: None,
+            sequence_number: Some(1),
+            challenge: Some("Y2hhbGxlbmdl".into()),
+            response: None,
+        },
+        ..Default::default()
+    };
+    let err = compose_message(&rejected, "MIME_boundary").unwrap_err();
+    assert!(err.to_string().contains("must be a number"), "{err}");
+
+    // Challenge: any string is schema-legal, so it must come out escaped
+    let escaped = OutMessage {
+        kind: Some(MessageType::GetMessageId),
+        control_block: ControlBlock {
+            conversation_id: Some("42".into()),
+            sequence_number: Some(1),
             challenge: Some(hostile.into()),
             response: None,
         },
         ..Default::default()
     };
-    let stream = compose_message(&out, "MIME_boundary").unwrap();
+    let stream = compose_message(&escaped, "MIME_boundary").unwrap();
     let mut mime = osci_core::helper::mime::MimeParser::new(&stream[..]).unwrap();
     let mut part = mime.next_part().unwrap().unwrap();
     let mut xml = Vec::new();
@@ -176,8 +195,9 @@ fn hostile_control_block_values_are_escaped() {
     let xml = String::from_utf8(xml).unwrap();
 
     // the hostile payload appears only escaped; no smuggled element
+    // (the payload sits in element text now - the attribute layer is
+    // covered by the numeric ConversationId rejection above)
     assert!(!xml.contains("<osci:Evil/>"), "XML smuggled: {xml}");
-    assert!(xml.contains("&quot;"), "attribute escaping missing");
     assert!(xml.contains("&lt;"), "element-text escaping missing");
 
     // and it re-parses to the same value
@@ -187,7 +207,6 @@ fn hostile_control_block_values_are_escaped() {
         .elements()
         .find(|e| e.local == "ControlBlock")
         .unwrap();
-    assert_eq!(cb.attr("ConversationId"), Some(hostile));
     assert_eq!(
         cb.elements()
             .find(|e| e.local == "Challenge")

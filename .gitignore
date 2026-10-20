@@ -15,3 +15,6 @@ oracle/build/
 /tools/
 .vscode/
 .zcode/
+# Local python venv for the XSD gate validator (scripts/xsd-validate.sh)
+.venv-xsd/
+__pycache__/

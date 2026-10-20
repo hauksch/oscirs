@@ -71,10 +71,8 @@ fn stored_message_loads_all_fixtures() {
 /// including the partial store delivery with its chunk blob.
 #[test]
 fn store_load_roundtrips_all_types() {
-    let cert_der = {
-        let dump =
-            std::fs::read_to_string(common::corpus().join("certs").join("alice_cipher_4096.pem"))
-                .unwrap();
+    let load_cert = |pem: &str| {
+        let dump = std::fs::read_to_string(common::corpus().join("certs").join(pem)).unwrap();
         let start = dump.find("-----BEGIN CERTIFICATE-----").unwrap();
         let after = &dump[start + 27..];
         let end = after.find("-----END CERTIFICATE-----").unwrap();
@@ -84,25 +82,55 @@ fn store_load_roundtrips_all_types() {
             .collect();
         osci_core::helper::base64::decode(&b64).unwrap()
     };
-    let base = |kind: MessageType| OutMessage {
+    let cipher_originator = OutCertEntry {
+        role: CertRole::Originator,
+        use_: CertUse::Cipher,
+        id: "originator_cipher_test".into(),
+        der: load_cert("alice_cipher_4096.pem"),
+    };
+    let signature_originator = OutCertEntry {
+        role: CertRole::Originator,
+        use_: CertUse::Signature,
+        id: "originator_signature_test".into(),
+        der: load_cert("alice_signature_4096.pem"),
+    };
+    let cipher_addressee = OutCertEntry {
+        role: CertRole::Addressee,
+        use_: CertUse::Cipher,
+        id: "addressee_cipher_test".into(),
+        der: load_cert("bob_cipher_4096.pem"),
+    };
+    // per-kind legal NonIntermediaryCertificates content (issue #3)
+    let base = move |kind: MessageType| OutMessage {
         kind: Some(kind),
         control_block: ControlBlock {
-            sequence_number: if matches!(kind, MessageType::InitDialog) {
-                None
-            } else {
-                Some(1)
-            },
+            // InitDialog prohibits the dialog attributes and carries no
+            // Response (issue #3 model); everything else answers the
+            // peer's challenge
+            sequence_number: (!matches!(kind, MessageType::InitDialog)).then_some(1),
             challenge: Some("Y2hhbGxlbmdl".into()),
-            conversation_id: Some("4711".into()),
-            response: None,
+            conversation_id: (!matches!(kind, MessageType::InitDialog)).then(|| "4711".into()),
+            response: (!matches!(kind, MessageType::InitDialog)).then(|| "cmVzcG9uc2U=".into()),
         },
         desired_languages: Some("de".into()),
-        non_intermediary_certificates: vec![OutCertEntry {
-            role: CertRole::Originator,
-            use_: CertUse::Cipher,
-            id: "originator_cipher_test".into(),
-            der: cert_der.clone(),
-        }],
+        non_intermediary_certificates: match kind {
+            MessageType::ExitDialog
+            | MessageType::FetchDelivery
+            | MessageType::FetchProcessCard => {
+                vec![signature_originator.clone()]
+            }
+            MessageType::GetMessageId => {
+                vec![cipher_originator.clone(), signature_originator.clone()]
+            }
+            // both store flavors require the addressee cipher certificate
+            MessageType::StoreDelivery | MessageType::PartialStoreDelivery => {
+                vec![cipher_originator.clone(), cipher_addressee.clone()]
+            }
+            MessageType::ResponseToGetMessageId
+            | MessageType::ResponseToStoreDelivery
+            | MessageType::ResponseToAcceptDelivery => Vec::new(),
+            _ => vec![cipher_originator.clone()],
+        },
         ..Default::default()
     };
 
@@ -115,6 +143,14 @@ fn store_load_roundtrips_all_types() {
                 m.entry_inner = Some(
                     "<osci:MessageId>bXNn</osci:MessageId><osci:Subject>S</osci:Subject>".into(),
                 );
+                m.containers.push(OutContentContainer {
+                    id: "contentcontainer".into(),
+                    contents: vec![OutContent {
+                        id: "content1".into(),
+                        text: Some("payload".into()),
+                        href: None,
+                    }],
+                });
                 m
             },
             MessageType::StoreDelivery,
@@ -131,9 +167,16 @@ fn store_load_roundtrips_all_types() {
             {
                 let mut m = base(MessageType::ForwardDelivery);
                 m.entry_inner = Some(
-                    "<osci:MessageId>bXNn</osci:MessageId><osci:MessageId2>b</osci:MessageId2>"
-                        .into(),
+                    "<osci:ContentReceiver URI=\"http://localhost/rec\"></osci:ContentReceiver>                     <osci:MessageId>bXNn</osci:MessageId><osci:Subject>S</osci:Subject>".into(),
                 );
+                m.containers.push(OutContentContainer {
+                    id: "contentcontainer".into(),
+                    contents: vec![OutContent {
+                        id: "content1".into(),
+                        text: Some("payload".into()),
+                        href: None,
+                    }],
+                });
                 m
             },
             MessageType::ForwardDelivery,

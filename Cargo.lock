@@ -836,6 +836,7 @@ name = "osci"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "chrono",
  "osci-core",
  "osci-crypto",
  "osci-transport",
@@ -889,6 +890,7 @@ dependencies = [
 name = "osci-samples"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "osci",
  "osci-core",
  "osci-crypto",

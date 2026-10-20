@@ -138,6 +138,7 @@ fn signed_message_verifies_locally() {
             digest: None,
             certificate_id: "originator_signature".into(),
             attachments: &attachments,
+            header_element: None,
         },
     )
     .unwrap();
@@ -186,6 +187,7 @@ fn signed_message_verifies_in_java_reference() {
             digest: None,
             certificate_id: "originator_signature".into(),
             attachments: &attachments,
+            header_element: None,
         },
     )
     .unwrap();
@@ -256,6 +258,7 @@ fn tampered_signature_rejected_by_java_reference() {
             digest: None,
             certificate_id: "originator_signature".into(),
             attachments: &attachments,
+            header_element: None,
         },
     )
     .unwrap();

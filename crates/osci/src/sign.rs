@@ -39,6 +39,10 @@ pub struct SignParams<'a> {
     pub certificate_id: String,
     /// Transfer-decoded attachments by content id (for cid: references).
     pub attachments: &'a [(String, Vec<u8>)],
+    /// The wrapping OSCI header element: `ClientSignature` (requests,
+    /// default) or `SupplierSignature` (responses - the soapResponseTo
+    /// schemas only accept the supplier slot).
+    pub header_element: Option<&'a str>,
 }
 
 /// Sign a composed (unsigned) message XML part: returns the XML with the
@@ -159,8 +163,12 @@ fn build_signature_xml(
     params: &SignParams<'_>,
     placeholder: bool,
 ) -> Result<String, SignError> {
+    let header_element = params.header_element.unwrap_or("ClientSignature");
+    let id = header_element.to_lowercase();
     let mut out = String::new();
-    out.push_str("<osci:ClientSignature Id=\"clientsignature\" soap:actor=\"http://schemas.xmlsoap.org/soap/actor/next\" soap:mustUnderstand=\"1\"><ds:Signature><ds:SignedInfo><ds:CanonicalizationMethod Algorithm=\"");
+    out.push_str(&format!(
+        "<osci:{header_element} Id=\"{id}\" soap:actor=\"http://schemas.xmlsoap.org/soap/actor/next\" soap:mustUnderstand=\"1\"><ds:Signature><ds:SignedInfo><ds:CanonicalizationMethod Algorithm=\""
+    ));
     out.push_str(C14N_TRANSFORM);
     out.push_str("\"></ds:CanonicalizationMethod><ds:SignatureMethod Algorithm=\"");
     out.push_str(method);
@@ -191,7 +199,9 @@ fn build_signature_xml(
     }
     out.push_str("</ds:SignedInfo><ds:SignatureValue>PHMBOLFU5fQ==</ds:SignatureValue><ds:KeyInfo><ds:RetrievalMethod URI=\"#");
     out.push_str(&params.certificate_id);
-    out.push_str("\"></ds:RetrievalMethod></ds:KeyInfo></ds:Signature></osci:ClientSignature>");
+    out.push_str("\"></ds:RetrievalMethod></ds:KeyInfo></ds:Signature></osci:");
+    out.push_str(header_element);
+    out.push('>');
     Ok(out)
 }
 

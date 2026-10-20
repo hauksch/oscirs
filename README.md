@@ -69,7 +69,12 @@ Every layer is gated against the pinned reference:
 - [x] Weak-key policy (all `TestCrypto` dates)
 - [x] Streaming symmetric ciphers (`[IV][ct]` wire format, tag verification)
 - [x] SOAP headers (ControlBlock, certificate headers, QualityOfTimestamp, DesiredLanguages, FeatureDescription, custom)
-- [x] All 24 message types: recognition, parse, compose (XSD-VALID)
+- [x] All 24 message types: recognition, parse, compose (**schema-enforced**:
+  compose validates the per-type header/entry/control-block shapes against
+  the normative soap*.xsd content models and emits the canonical
+  NonIntermediaryCertificates child order — issue #3; a local XSD gate
+  (`scripts/xsd-validate.sh`, lxml/libxml2) validates composed traffic of
+  every kind, signed and content-/transport-encrypted variants included)
 - [x] StoredMessage load/store, passive-recipient DialogFinder
 - [x] Chunking (partial store/fetch, both wire shapes)
 - [x] MessageMetaData extension header
@@ -95,6 +100,19 @@ Every layer is gated against the pinned reference:
   `scripts/extract-testcorpus.sh`).
 - Pure-Rust `rsa` inherits RUSTSEC-2023-0071 (Marvin) on v1.5 unwrap —
   the same exposure class as BouncyCastle; document for legacy interop.
+- The XSD gate sandbox drops the trailing `xsd:any` wildcard from the
+  Header content models: several schemas end an *optional* osci element
+  directly with the wildcard, which violates the XSD Unique Particle
+  Attribution rule — Xerces and older libxml2 tolerate it, current
+  libxml2 refuses to compile the schema. Vendor extension headers
+  (e.g. XTA MessageMetaData) are therefore outside the gate's coverage.
+- Entry children that are not modeled fields (ContentReceiver,
+  MessageIdResponse, Request-/ReplyProcessCardBundle for mediate
+  responses, InfoOnly) are supplied as raw `entry_inner` XML by the
+  caller; process-card bundles compose with their InspectionReport.
+- Response signatures (the intermediary's `SupplierSignature`) reference
+  their certificate via IntermediaryCertificates; the composer does not
+  emit that header yet, so osci cannot yet compose signed responses.
 
 ## Notes
 

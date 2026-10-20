@@ -7,12 +7,13 @@ mod common;
 use std::io::Read;
 use std::sync::{Arc, Mutex};
 
+use chrono::TimeZone as _;
 use osci::dialog::{Dialog, DialogError, first_feedback};
-use osci_core::message::MessageType;
 use osci_core::message::compose::{
     OutCertEntry, OutContent, OutContentContainer, OutFeedback, OutMessage, compose_message,
 };
 use osci_core::message::stored::StoredMessage;
+use osci_core::message::{MessageType, OsciMessage};
 use osci_core::soap::{CertRole, CertUse, ControlBlock};
 use osci_crypto::software::RsaSigner;
 use osci_transport::{LoopbackTransport, MockIntermediary, TransportError};
@@ -41,6 +42,9 @@ struct ScriptedIntermediary {
     seen: Arc<Mutex<Vec<(MessageType, ControlBlock)>>>,
     /// break the challenge echo in one reply (negative test)
     break_challenge_once: Mutex<bool>,
+    /// respond with a broken challenge from this request count on
+    /// (1-based; usize::MAX = never)
+    break_from_round: Mutex<usize>,
     /// stored deliveries (the " mailbox", for the async scenario)
     mailbox: Arc<Mutex<Vec<Vec<u8>>>>,
 }
@@ -50,6 +54,7 @@ impl ScriptedIntermediary {
         Self {
             seen,
             break_challenge_once: Mutex::new(false),
+            break_from_round: Mutex::new(usize::MAX),
             mailbox: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -125,18 +130,32 @@ impl MockIntermediary for ScriptedIntermediary {
 
         // control-block protocol: response answers the request's
         // challenge, echoes sequence + conversation, provides a new
-        // challenge
+        // challenge; the intermediary assigns the conversation id with
+        // the InitDialog response (the schema requires it there)
         let mut response_block = ControlBlock {
-            conversation_id: request_block.conversation_id.clone(),
+            conversation_id: request_block
+                .conversation_id
+                .clone()
+                .or_else(|| Some("4711".into())),
             sequence_number: request_block.sequence_number,
             response: request_block.challenge.clone(),
             challenge: Some(osci_core::helper::base64::encode(
                 b"intermediary-next-challen",
             )),
         };
-        if *self.break_challenge_once.lock().unwrap() {
+        if *self.break_challenge_once.lock().unwrap()
+            || self.seen.lock().unwrap().len() >= *self.break_from_round.lock().unwrap()
+        {
             response_block.response = Some("d3Jvbmc=".into());
             *self.break_challenge_once.lock().unwrap() = false;
+        }
+        // mask the fields the response kind's ControlBlock schema
+        // prohibits (fail-closed compose would reject them)
+        if !osci_core::message::compose::control_block_allows_conversation(response_kind) {
+            response_block.conversation_id = None;
+        }
+        if !osci_core::message::compose::control_block_allows_sequence(response_kind) {
+            response_block.sequence_number = None;
         }
 
         let feedback_code = if kind == MessageType::StoreDelivery {
@@ -150,16 +169,91 @@ impl MockIntermediary for ScriptedIntermediary {
             "Auftrag ausgeführt"
         };
 
+        // response entry children per type (Feedback is written from
+        // msg.feedback; the rest of the entry content per schema)
+        let card = |forwarding: bool| osci_core::message::compose::OutProcessCard {
+            creation: Some(chrono::Utc.with_ymd_and_hms(2026, 1, 1, 12, 0, 0).unwrap()),
+            forwarding: forwarding
+                .then(|| chrono::Utc.with_ymd_and_hms(2026, 1, 1, 12, 5, 0).unwrap()),
+            reception: None,
+            subject: Some("S".into()),
+        };
+        let inspection = osci_core::message::Inspection {
+            timestamp: Some("2026-01-01T12:06:00+01:00".into()),
+            x509_subject_name: Some("CN=intermediary".into()),
+            x509_issuer_name: Some("CN=intermediary-ca".into()),
+            x509_serial_number: Some("1".into()),
+            cert_type: Some("advanced".into()),
+            math_result: Some("ok".into()),
+            offline_result: Some("valid".into()),
+            online_result: Some("ok".into()),
+        };
+        let bundle = osci_core::message::compose::OutProcessCardBundle {
+            message_id: Some("bXNn".into()),
+            process_cards: vec![card(false)],
+            inspections: vec![inspection],
+        };
         let out = OutMessage {
             kind: Some(response_kind),
             control_block: response_block,
-            desired_languages: Some("de".into()),
+            // the response schemas have no DesiredLanguages slot
             feedback: vec![OutFeedback {
                 language: Some("de".into()),
                 code: feedback_code.into(),
                 text: feedback_text.into(),
             }],
-            entry_inner: Some("<osci:MessageId>aW50ZXJtZWRpYXJ5LWlk</osci:MessageId>".into()),
+            entry_inner: match response_kind {
+                MessageType::ResponseToGetMessageId => {
+                    Some("<osci:MessageId>aW50ZXJtZWRpYXJ5LWlk</osci:MessageId>".into())
+                }
+                MessageType::ResponseToFetchDelivery => Some(
+                    "<osci:fetchDelivery><osci:SelectionRule><osci:MessageId>bXNn</osci:MessageId>\
+                     </osci:SelectionRule></osci:fetchDelivery>"
+                        .into(),
+                ),
+                MessageType::ResponseToForwardDelivery | MessageType::ResponseToStoreDelivery => {
+                    None
+                }
+                MessageType::ResponseToMediateDelivery => Some(
+                    "<osci:RequestProcessCardBundle><osci:MessageId>bXNn</osci:MessageId>\
+                     <osci:ProcessCard RecentModification=\"2026-01-01T12:00:00+01:00\">\
+                     <osci:Creation><osci:Plain>2026-01-01T12:00:00+01:00</osci:Plain></osci:Creation>\
+                     <osci:Forwarding><osci:Plain>2026-01-01T12:05:00+01:00</osci:Plain></osci:Forwarding>\
+                     <osci:Reception><osci:Plain>2026-01-01T12:06:00+01:00</osci:Plain></osci:Reception>\
+                     </osci:ProcessCard><osci:InspectionReport><osci:Inspection>\
+                     <osci:Timestamp><osci:Plain>2026-01-01T12:06:00+01:00</osci:Plain></osci:Timestamp>\
+                     <osci:X509SubjectName>CN=intermediary</osci:X509SubjectName>\
+                     <osci:X509IssuerName>CN=intermediary-ca</osci:X509IssuerName>\
+                     <osci:X509SerialNumber>1</osci:X509SerialNumber>\
+                     <osci:CertType Type=\"advanced\"></osci:CertType>\
+                     <osci:MathResult Result=\"ok\"></osci:MathResult>\
+                     <osci:OfflineResult Result=\"valid\"></osci:OfflineResult>\
+                     <osci:OnlineResult Result=\"ok\"></osci:OnlineResult>\
+                     </osci:Inspection></osci:InspectionReport></osci:RequestProcessCardBundle>\
+                     <osci:ReplyProcessCardBundle><osci:MessageId>bXNn</osci:MessageId>\
+                     <osci:ProcessCard RecentModification=\"2026-01-01T12:00:00+01:00\">\
+                     <osci:Creation><osci:Plain>2026-01-01T12:00:00+01:00</osci:Plain></osci:Creation>\
+                     <osci:Forwarding><osci:Plain>2026-01-01T12:05:00+01:00</osci:Plain></osci:Forwarding>\
+                     </osci:ProcessCard><osci:InspectionReport><osci:Inspection>\
+                     <osci:Timestamp><osci:Plain>2026-01-01T12:06:00+01:00</osci:Plain></osci:Timestamp>\
+                     <osci:X509SubjectName>CN=intermediary</osci:X509SubjectName>\
+                     <osci:X509IssuerName>CN=intermediary-ca</osci:X509IssuerName>\
+                     <osci:X509SerialNumber>1</osci:X509SerialNumber>\
+                     <osci:CertType Type=\"advanced\"></osci:CertType>\
+                     <osci:MathResult Result=\"ok\"></osci:MathResult>\
+                     <osci:OfflineResult Result=\"valid\"></osci:OfflineResult>\
+                     <osci:OnlineResult Result=\"ok\"></osci:OnlineResult>\
+                     </osci:Inspection></osci:InspectionReport></osci:ReplyProcessCardBundle>"
+                        .into(),
+                ),
+                _ => None,
+            },
+            process_card_bundles: matches!(
+                response_kind,
+                MessageType::ResponseToStoreDelivery | MessageType::ResponseToForwardDelivery
+            )
+            .then(|| vec![bundle.clone()])
+            .unwrap_or_default(),
             ..Default::default()
         };
         compose_message(&out, "MIME_boundary").map_err(|e| TransportError(e.to_string()))
@@ -206,48 +300,73 @@ fn signer() -> RsaSigner {
 }
 
 fn unsigned_out(kind: MessageType, sequence: Option<u32>) -> OutMessage {
+    // per-kind certificate sets: the NonIntermediaryCertificates content
+    // model is restricted per message type (issue #3)
+    let cipher_originator = OutCertEntry {
+        role: CertRole::Originator,
+        use_: CertUse::Cipher,
+        id: "originator_cipher".into(),
+        der: cert_der("alice_cipher_4096.pem"),
+    };
+    let signature_originator = OutCertEntry {
+        role: CertRole::Originator,
+        use_: CertUse::Signature,
+        id: "originator_signature".into(),
+        der: cert_der("alice_signature_4096.pem"),
+    };
+    let cipher_addressee = OutCertEntry {
+        role: CertRole::Addressee,
+        use_: CertUse::Cipher,
+        id: "addressee_cipher".into(),
+        der: cert_der("bob_cipher_4096.pem"),
+    };
+    let certificates = match kind {
+        // only originator entries (schema: GetMessageId allows the
+        // cipher + signature originator, InitDialog requires the cipher
+        // one, ExitDialog/FetchDelivery the signature originator only)
+        MessageType::GetMessageId | MessageType::InitDialog => {
+            vec![cipher_originator, signature_originator]
+        }
+        MessageType::ExitDialog | MessageType::FetchDelivery => vec![signature_originator],
+        // deliveries carry the reader's cipher certificate (the
+        // StoreDelivery schema makes it mandatory)
+        _ => vec![cipher_originator, signature_originator, cipher_addressee],
+    };
     OutMessage {
         kind: Some(kind),
         control_block: ControlBlock {
             sequence_number: sequence,
             challenge: Some("Y2xpZW50LWNoYWxsZW5nZQ==".into()),
-            conversation_id: Some("dialog-4711".into()),
+            conversation_id: Some("4711".into()),
             response: None,
         },
         desired_languages: Some("de".into()),
-        non_intermediary_certificates: vec![
-            OutCertEntry {
-                role: CertRole::Originator,
-                use_: CertUse::Cipher,
-                id: "originator_cipher".into(),
-                der: cert_der("alice_cipher_4096.pem"),
-            },
-            OutCertEntry {
-                role: CertRole::Originator,
-                use_: CertUse::Signature,
-                id: "originator_signature".into(),
-                der: cert_der("alice_signature_4096.pem"),
-            },
-            OutCertEntry {
-                role: CertRole::Addressee,
-                use_: CertUse::Cipher,
-                id: "addressee_cipher".into(),
-                der: cert_der("bob_cipher_4096.pem"),
-            },
-        ],
+        non_intermediary_certificates: certificates,
         ..Default::default()
     }
 }
 
-/// SynchronousUseCaseIT (essence): GetMessageId -> ForwardDelivery, both
-/// signed, with full control-block protocol across two round trips.
+/// Open the dialog (InitDialog round; the intermediary assigns the
+/// conversation id with its response).
+fn init_dialog(dialog: &mut Dialog) -> OsciMessage {
+    let mut out = unsigned_out(MessageType::InitDialog, None);
+    let response = dialog
+        .send(&mut out, &[], "MIME_boundary")
+        .expect("init round");
+    assert_eq!(response.kind, Some(MessageType::ResponseToInitDialog));
+    response
+}
+
+/// SynchronousUseCaseIT (essence): InitDialog -> GetMessageId ->
+/// ForwardDelivery, both signed, with full control-block protocol.
 #[test]
 fn synchronous_scenario() {
     let (transport, seen, _mailbox) = transport();
     let mut dialog = Dialog::new(Box::new(transport))
         .with_signer(Box::new(signer()), "originator_signature".into());
+    init_dialog(&mut dialog);
 
-    // round 1: GetMessageId
+    // round 2: GetMessageId
     let mut out = unsigned_out(MessageType::GetMessageId, None);
     let response = dialog
         .send(&mut out, &[], "MIME_boundary")
@@ -256,12 +375,22 @@ fn synchronous_scenario() {
     let feedback = first_feedback(&response).unwrap();
     assert!(feedback.code.starts_with('0'), "feedback {}", feedback.code);
 
-    // round 2: ForwardDelivery with the message id from round 1 - the
+    // round 3: ForwardDelivery with the message id from round 2 - the
     // dialog adopted the intermediary's challenge
     let mut forward = unsigned_out(MessageType::ForwardDelivery, None);
     forward.entry_inner = Some(
-        "<osci:MessageId>bXNnLWZ3ZA==</osci:MessageId><osci:Subject>Subject</osci:Subject>".into(),
+        "<osci:ContentReceiver URI=\"http://localhost/rec\"></osci:ContentReceiver>\
+         <osci:MessageId>bXNnLWZ3ZA==</osci:MessageId><osci:Subject>Subject</osci:Subject>"
+            .into(),
     );
+    forward.containers.push(OutContentContainer {
+        id: "contentcontainer".into(),
+        contents: vec![OutContent {
+            id: "content1".into(),
+            text: Some("forwarded payload".into()),
+            href: None,
+        }],
+    });
     let response = dialog
         .send(&mut forward, &[], "MIME_boundary")
         .expect("forward round");
@@ -269,19 +398,21 @@ fn synchronous_scenario() {
     let feedback = first_feedback(&response).unwrap();
     assert_eq!(feedback.code, "0800");
 
-    // both requests hit the intermediary with valid protocol
+    // all requests hit the intermediary with valid protocol
     let seen = seen.lock().unwrap();
-    assert_eq!(seen.len(), 2);
-    assert_eq!(seen[0].0, MessageType::GetMessageId);
-    assert_eq!(seen[1].0, MessageType::ForwardDelivery);
+    assert_eq!(seen.len(), 3);
+    assert_eq!(seen[0].0, MessageType::InitDialog);
+    assert_eq!(seen[1].0, MessageType::GetMessageId);
+    assert_eq!(seen[2].0, MessageType::ForwardDelivery);
 }
 
-/// AsynchronousUseCaseIT (essence): StoreDelivery, then FetchDelivery of
-/// the stored message from the mailbox.
+/// AsynchronousUseCaseIT (essence): InitDialog, StoreDelivery, then
+/// FetchDelivery of the stored message from the mailbox.
 #[test]
 fn asynchronous_scenario() {
     let (transport, _seen, mailbox) = transport();
     let mut dialog = Dialog::new(Box::new(transport));
+    init_dialog(&mut dialog);
 
     let mut store = unsigned_out(MessageType::StoreDelivery, None);
     store.entry_inner =
@@ -312,6 +443,7 @@ fn asynchronous_scenario() {
 fn parallel_scenario() {
     let (transport, seen, _mailbox) = transport();
     let mut dialog = Dialog::new(Box::new(transport));
+    init_dialog(&mut dialog);
 
     for kind in [
         MessageType::GetMessageId,
@@ -321,13 +453,22 @@ fn parallel_scenario() {
     ] {
         let mut out = unsigned_out(kind, None);
         if matches!(kind, MessageType::StoreDelivery) {
-            out.entry_inner = Some("<osci:MessageId>bXNn</osci:MessageId>".into());
+            out.entry_inner =
+                Some("<osci:MessageId>bXNn</osci:MessageId><osci:Subject>S</osci:Subject>".into());
+            out.containers.push(OutContentContainer {
+                id: "contentcontainer".into(),
+                contents: vec![OutContent {
+                    id: "content1".into(),
+                    text: Some("parallel payload".into()),
+                    href: None,
+                }],
+            });
         }
         let response = dialog.send(&mut out, &[], "MIME_boundary").unwrap();
         let code = first_feedback(&response).unwrap().code.clone();
         assert!(code.starts_with('0'), "{kind:?}: feedback {code}");
     }
-    assert_eq!(seen.lock().unwrap().len(), 4, "all four rounds processed");
+    assert_eq!(seen.lock().unwrap().len(), 5, "all five rounds processed");
 }
 
 /// A response that fails the challenge protocol is rejected
@@ -336,9 +477,12 @@ fn parallel_scenario() {
 fn broken_challenge_rejected() {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let intermediary = ScriptedIntermediary::new(seen.clone());
-    *intermediary.break_challenge_once.lock().unwrap() = true;
+    // break the SECOND response: the first (InitDialog) must succeed so
+    // the dialog state is established
+    *intermediary.break_from_round.lock().unwrap() = 2;
     let transport = LoopbackTransport::new(Box::new(intermediary));
     let mut dialog = Dialog::new(Box::new(transport));
+    init_dialog(&mut dialog);
 
     let mut out = unsigned_out(MessageType::GetMessageId, None);
     let error = dialog.send(&mut out, &[], "MIME_boundary").unwrap_err();
@@ -360,13 +504,14 @@ fn signed_round_trips_verify_on_the_wire() {
     };
     let mut dialog =
         Dialog::new(Box::new(probe)).with_signer(Box::new(signer()), "originator_signature".into());
+    init_dialog(&mut dialog);
 
     let mut out = unsigned_out(MessageType::GetMessageId, None);
     dialog.send(&mut out, &[], "MIME_boundary").unwrap();
 
-    let wire = log.lock().unwrap()[0].clone();
+    let wire = log.lock().unwrap()[1].clone();
     let xml = extract_xml(&wire);
     let report = osci::security::verify_message(&xml, &[]).unwrap();
     assert!(report.all_valid(), "wire signature valid: {report:#?}");
-    assert_eq!(seen.lock().unwrap().len(), 1);
+    assert_eq!(seen.lock().unwrap().len(), 2);
 }

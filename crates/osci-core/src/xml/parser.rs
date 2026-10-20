@@ -37,8 +37,23 @@ pub enum XmlError {
     UnboundPrefix(String),
 }
 
+/// Largest offset <= i that is a char boundary. quick-xml reports byte
+/// positions; the prolog/epilog slices must stay total on arbitrary
+/// (hostile) input.
+fn floor_boundary(input: &str, mut i: usize) -> usize {
+    i = i.min(input.len());
+    while !input.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
 /// Parse an XML document (already UTF-8) into a tree.
 pub fn parse(input: &str) -> Result<Document, XmlError> {
+    // a leading BOM is legal XML (encoding information, not content);
+    // quick-xml's event offsets skip it, which would desynchronize the
+    // prolog/epilog byte slices below
+    let input = input.strip_prefix('\u{feff}').unwrap_or(input);
     let mut reader = Reader::from_str(input);
     reader.config_mut().check_comments = true;
 
@@ -60,7 +75,7 @@ pub fn parse(input: &str) -> Result<Document, XmlError> {
         match event {
             Ok(Event::Start(e)) => {
                 if stack.is_empty() && !root_taken {
-                    doc.prolog = input[..prev_end].to_string();
+                    doc.prolog = input[..floor_boundary(input, prev_end)].to_string();
                 }
                 // Depth cap: deeply nested documents overflow the stack in
                 // the recursive tree drop and canonicalization walks
@@ -157,7 +172,8 @@ pub fn parse(input: &str) -> Result<Document, XmlError> {
     }
 
     if let Some(start) = epilog_start {
-        doc.epilog = input[start.min(input.len())..].to_string();
+        let start = floor_boundary(input, start);
+        doc.epilog = input[start..].to_string();
     }
 
     if let Some(open) = stack.first() {

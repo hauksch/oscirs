@@ -7,7 +7,8 @@
 
 use crate::helper::base64;
 use crate::soap::{
-    Composer as HeaderComposer, ControlBlock, FeatureDescription, NS_BLOCK, ns_block_2017,
+    CertRole, CertUse, Composer as HeaderComposer, ControlBlock, FeatureDescription, NS_BLOCK,
+    ns_block_2017,
 };
 use crate::xml::writer::{XmlWriter, escape_text};
 
@@ -22,8 +23,475 @@ pub enum ComposeError {
     Kind(String),
     #[error("required value missing: {0}")]
     Missing(String),
+    #[error("schema violation: {0}")]
+    Schema(String),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+}
+
+// ---------------------------------------------------------------------
+// Per-kind wire shape (issue #3: "the schemas are the contract"). The
+// tables mirror the normative soap*.xsd / *.xsd content models of the
+// vendored corpus (Korrigenda 1-10); compose enforces them so illegal
+// header shapes are compose errors instead of wire-level surprises at
+// the intermediary's validator.
+
+/// One allowed NonIntermediaryCertificates child slot: (use, role,
+/// minOccurs, maxOccurs) - `u32::MAX` = unbounded.
+type CertSlot = (CertUse, CertRole, u32, u32);
+
+/// The unrestricted NonIntermediaryCertificatesTemplate child sequence
+/// (order.xsd): cipher originator -> cipher other authors -> cipher
+/// addressee -> cipher other readers -> signature originator -> signature
+/// other authors -> signature addressee (added by KORR1 last).
+const NIC_TEMPLATE: &[CertSlot] = &[
+    (CertUse::Cipher, CertRole::Originator, 0, 1),
+    (CertUse::Cipher, CertRole::OtherAuthor, 0, u32::MAX),
+    (CertUse::Cipher, CertRole::Addressee, 0, 1),
+    (CertUse::Cipher, CertRole::OtherReader, 0, u32::MAX),
+    (CertUse::Signature, CertRole::Originator, 0, 1),
+    (CertUse::Signature, CertRole::OtherAuthor, 0, u32::MAX),
+    (CertUse::Signature, CertRole::Addressee, 0, 1),
+];
+
+/// Allowed NonIntermediaryCertificates children per message kind
+/// (`None` = the kind's soap schema has no NonIntermediaryCertificates
+/// element at all).
+fn nic_model(kind: MessageType) -> Option<&'static [CertSlot]> {
+    Some(match kind {
+        MessageType::InitDialog => &[
+            (CertUse::Cipher, CertRole::Originator, 1, 1),
+            (CertUse::Signature, CertRole::Originator, 0, 1),
+        ][..],
+        MessageType::ExitDialog | MessageType::FetchDelivery | MessageType::FetchProcessCard => {
+            &[(CertUse::Signature, CertRole::Originator, 0, 1)][..]
+        }
+        MessageType::GetMessageId => &[
+            (CertUse::Cipher, CertRole::Originator, 0, 1),
+            (CertUse::Signature, CertRole::Originator, 0, 1),
+        ][..],
+        MessageType::StoreDelivery => &[
+            (CertUse::Cipher, CertRole::Originator, 0, 1),
+            (CertUse::Cipher, CertRole::OtherAuthor, 0, u32::MAX),
+            (CertUse::Cipher, CertRole::Addressee, 1, 1),
+            (CertUse::Cipher, CertRole::OtherReader, 0, u32::MAX),
+            (CertUse::Signature, CertRole::Originator, 0, 1),
+            (CertUse::Signature, CertRole::OtherAuthor, 0, u32::MAX),
+        ][..],
+        MessageType::ResponseToAcceptDelivery => {
+            &[(CertUse::Signature, CertRole::Addressee, 0, 1)][..]
+        }
+        // full template via xsd:extension (no restriction): delivery
+        // types and their process-delivery responses
+        MessageType::AcceptDelivery
+        | MessageType::ProcessDelivery
+        | MessageType::ForwardDelivery
+        | MessageType::MediateDelivery
+        | MessageType::ResponseToFetchDelivery
+        | MessageType::ResponseToMediateDelivery
+        | MessageType::ResponseToProcessDelivery => NIC_TEMPLATE,
+        // the 2017 partial messages import the osci types through the
+        // OldNS schemas, which pull in the sibling delivery schemas:
+        // PartialStoreDelivery inherits StoreDelivery's restriction
+        // (addressee cipher required), PartialFetchDelivery FetchDelivery's
+        MessageType::PartialStoreDelivery => &[
+            (CertUse::Cipher, CertRole::Originator, 0, 1),
+            (CertUse::Cipher, CertRole::OtherAuthor, 0, u32::MAX),
+            (CertUse::Cipher, CertRole::Addressee, 1, 1),
+            (CertUse::Cipher, CertRole::OtherReader, 0, u32::MAX),
+            (CertUse::Signature, CertRole::Originator, 0, 1),
+            (CertUse::Signature, CertRole::OtherAuthor, 0, u32::MAX),
+        ][..],
+        MessageType::PartialFetchDelivery => {
+            &[(CertUse::Signature, CertRole::Originator, 0, 1)][..]
+        }
+        // the response schemas of the dialog lifecycle and of
+        // store/forward/partial-store deliveries have no
+        // NonIntermediaryCertificates element
+        MessageType::ResponseToInitDialog
+        | MessageType::ResponseToExitDialog
+        | MessageType::ResponseToGetMessageId
+        | MessageType::ResponseToFetchProcessCard
+        | MessageType::ResponseToStoreDelivery
+        | MessageType::ResponseToForwardDelivery
+        | MessageType::ResponseToPartialStoreDelivery
+        | MessageType::ResponseToPartialFetchDelivery => return None,
+    })
+}
+
+/// Message kinds whose soap schema requires the
+/// NonIntermediaryCertificates element (minOccurs=1).
+fn nic_required(kind: MessageType) -> bool {
+    matches!(
+        kind,
+        MessageType::InitDialog | MessageType::StoreDelivery | MessageType::PartialStoreDelivery
+    )
+}
+
+/// Message kinds whose soap schema requires a ContentPackage in the Body
+/// (minOccurs=1): the deliveries. Entry-in-body types carry the entry
+/// element instead; responses may have an empty Body.
+fn body_requires_content_package(kind: MessageType) -> bool {
+    matches!(
+        kind,
+        MessageType::StoreDelivery
+            | MessageType::AcceptDelivery
+            | MessageType::ProcessDelivery
+            | MessageType::ForwardDelivery
+            | MessageType::MediateDelivery
+            | MessageType::PartialStoreDelivery
+    )
+}
+
+/// QualityOfTimestamp cardinality per kind.
+enum QotModel {
+    /// No QualityOfTimestamp slot in the schema.
+    Forbidden,
+    /// Exactly creation + reception (StoreDelivery, ForwardDelivery);
+    /// Java composes both unconditionally (plain when unset).
+    TwoRequired,
+    /// Exactly the creation stamp (PartialStoreDelivery).
+    CreationRequired,
+    /// Zero, one or both (MediateDelivery, ResponseToProcessDelivery).
+    OptionalTwo,
+}
+
+fn qot_model(kind: MessageType) -> QotModel {
+    match kind {
+        MessageType::StoreDelivery | MessageType::ForwardDelivery => QotModel::TwoRequired,
+        MessageType::PartialStoreDelivery => QotModel::CreationRequired,
+        MessageType::MediateDelivery | MessageType::ResponseToProcessDelivery => {
+            QotModel::OptionalTwo
+        }
+        _ => QotModel::Forbidden,
+    }
+}
+
+/// The SOAP signature header element of a kind: requests carry
+/// `osci:ClientSignature`, responses `osci:SupplierSignature` (the
+/// soapResponseTo*.xsd slot).
+pub fn signature_header_name(kind: MessageType) -> &'static str {
+    if kind.is_response() {
+        "SupplierSignature"
+    } else {
+        "ClientSignature"
+    }
+}
+
+/// Attribute use of a ControlBlock field in a kind's ControlBlockType
+/// restriction (`use="prohibited" | "optional" | "required"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AttrUse {
+    Prohibited,
+    Optional,
+    Required,
+}
+
+/// ControlBlock shape per kind, from the ControlBlockType restrictions
+/// of the message schemas (2017 partial messages inherit the
+/// unrestricted ControlBlockTemplate).
+struct ControlBlockModel {
+    response_allowed: bool,
+    response_required: bool,
+    challenge_allowed: bool,
+    challenge_required: bool,
+    conversation_id: AttrUse,
+    sequence_number: AttrUse,
+}
+
+fn control_block_model(kind: MessageType) -> ControlBlockModel {
+    use AttrUse::{Optional, Prohibited, Required};
+    match kind {
+        // dialog setup: no conversation, no sequence, no response
+        MessageType::InitDialog => ControlBlockModel {
+            response_allowed: false,
+            response_required: false,
+            challenge_allowed: true,
+            challenge_required: true,
+            conversation_id: Prohibited,
+            sequence_number: Prohibited,
+        },
+        // store-like requests: conversation optional, sequence required
+        MessageType::GetMessageId | MessageType::ForwardDelivery | MessageType::StoreDelivery => {
+            ControlBlockModel {
+                response_allowed: true,
+                response_required: false,
+                challenge_allowed: true,
+                challenge_required: true,
+                conversation_id: Optional,
+                sequence_number: Required,
+            }
+        }
+        // dialog-bound requests: everything required
+        MessageType::ExitDialog
+        | MessageType::FetchDelivery
+        | MessageType::FetchProcessCard
+        | MessageType::MediateDelivery => ControlBlockModel {
+            response_allowed: true,
+            response_required: true,
+            challenge_allowed: true,
+            challenge_required: true,
+            conversation_id: Required,
+            sequence_number: Required,
+        },
+        // accept/process requests carry no dialog attributes
+        MessageType::AcceptDelivery | MessageType::ProcessDelivery => ControlBlockModel {
+            response_allowed: true,
+            response_required: false,
+            challenge_allowed: true,
+            challenge_required: true,
+            conversation_id: Prohibited,
+            sequence_number: Prohibited,
+        },
+        // responses always answer our challenge (Response required);
+        // the next Challenge is mandatory on the accept/process and
+        // dialog-exit/init families, optional elsewhere
+        MessageType::ResponseToInitDialog => ControlBlockModel {
+            response_allowed: true,
+            response_required: true,
+            challenge_allowed: true,
+            challenge_required: true,
+            conversation_id: Required,
+            sequence_number: Prohibited,
+        },
+        MessageType::ResponseToGetMessageId | MessageType::ResponseToStoreDelivery => {
+            ControlBlockModel {
+                response_allowed: true,
+                response_required: true,
+                challenge_allowed: true,
+                challenge_required: false,
+                conversation_id: Required,
+                sequence_number: Required,
+            }
+        }
+        MessageType::ResponseToExitDialog => ControlBlockModel {
+            response_allowed: true,
+            response_required: true,
+            challenge_allowed: true,
+            challenge_required: true,
+            conversation_id: Required,
+            sequence_number: Required,
+        },
+        MessageType::ResponseToFetchDelivery
+        | MessageType::ResponseToFetchProcessCard
+        | MessageType::ResponseToMediateDelivery => ControlBlockModel {
+            response_allowed: true,
+            response_required: true,
+            challenge_allowed: true,
+            challenge_required: true,
+            conversation_id: Required,
+            sequence_number: Required,
+        },
+        MessageType::ResponseToAcceptDelivery | MessageType::ResponseToProcessDelivery => {
+            ControlBlockModel {
+                response_allowed: true,
+                response_required: true,
+                challenge_allowed: true,
+                challenge_required: true,
+                conversation_id: Prohibited,
+                sequence_number: Prohibited,
+            }
+        }
+        MessageType::ResponseToForwardDelivery => ControlBlockModel {
+            response_allowed: true,
+            response_required: true,
+            challenge_allowed: true,
+            challenge_required: false,
+            conversation_id: Optional,
+            sequence_number: Optional,
+        },
+        // 2017 partial messages: unrestricted ControlBlockTemplate
+        MessageType::PartialStoreDelivery
+        | MessageType::PartialFetchDelivery
+        | MessageType::ResponseToPartialStoreDelivery
+        | MessageType::ResponseToPartialFetchDelivery => ControlBlockModel {
+            response_allowed: true,
+            response_required: false,
+            challenge_allowed: true,
+            challenge_required: false,
+            conversation_id: Optional,
+            sequence_number: Optional,
+        },
+    }
+}
+
+/// Whether the kind's ControlBlock schema restriction allows a
+/// ConversationId / SequenceNumber attribute (false = `use="prohibited"`).
+pub fn control_block_allows_conversation(kind: MessageType) -> bool {
+    control_block_model(kind).conversation_id != AttrUse::Prohibited
+}
+
+pub fn control_block_allows_sequence(kind: MessageType) -> bool {
+    control_block_model(kind).sequence_number != AttrUse::Prohibited
+}
+
+/// ChunkInformation attribute rules per kind (the ChunkInformationType
+/// restrictions of the four 2017 partial schemas; `None` = the kind has
+/// no ChunkInformation slot at all).
+struct ChunkModel {
+    chunk_size: AttrUse,
+    received_chunks: AttrUse,
+    total_chunk_numbers: AttrUse,
+    total_message_size: AttrUse,
+}
+
+fn chunk_model(kind: MessageType) -> Option<ChunkModel> {
+    use AttrUse::{Optional, Prohibited, Required};
+    Some(match kind {
+        MessageType::PartialStoreDelivery => ChunkModel {
+            chunk_size: Required,
+            received_chunks: Prohibited,
+            total_chunk_numbers: Required,
+            total_message_size: Required,
+        },
+        MessageType::PartialFetchDelivery => ChunkModel {
+            chunk_size: Required,
+            received_chunks: Required,
+            total_chunk_numbers: Prohibited,
+            total_message_size: Prohibited,
+        },
+        MessageType::ResponseToPartialFetchDelivery => ChunkModel {
+            chunk_size: Prohibited,
+            received_chunks: Prohibited,
+            total_chunk_numbers: Optional,
+            total_message_size: Optional,
+        },
+        MessageType::ResponseToPartialStoreDelivery => ChunkModel {
+            chunk_size: Prohibited,
+            received_chunks: Required,
+            total_chunk_numbers: Optional,
+            total_message_size: Prohibited,
+        },
+        _ => return None,
+    })
+}
+
+/// Validate the chunk information against the kind's schema shape.
+fn check_chunk_shape(kind: MessageType, chunk: &ChunkInformation) -> Result<(), ComposeError> {
+    let Some(model) = chunk_model(kind) else {
+        return Err(ComposeError::Schema(format!(
+            "{kind:?} does not allow ChunkInformation"
+        )));
+    };
+    let schema = |what: &str| ComposeError::Schema(format!("{kind:?}: {what}"));
+    let check = |value: Option<i64>, use_: AttrUse, what: &str| match (value, use_) {
+        (Some(_), AttrUse::Prohibited) => {
+            Err(schema(&format!("ChunkInformation does not allow {what}")))
+        }
+        (None, AttrUse::Required) => Err(schema(&format!("ChunkInformation requires {what}"))),
+        _ => Ok(()),
+    };
+    check(chunk.chunk_size, model.chunk_size, "ChunkSize")?;
+    check(
+        chunk.received_chunks,
+        model.received_chunks,
+        "ReceivedChunks",
+    )?;
+    check(
+        chunk.total_chunk_numbers,
+        model.total_chunk_numbers,
+        "TotalChunkNumbers",
+    )?;
+    check(
+        chunk.total_message_size,
+        model.total_message_size,
+        "TotalMessageSize",
+    )?;
+    Ok(())
+}
+
+/// Validate the outbound control block against the kind's schema shape
+/// (issue #3); the ConversationId is an `osci:Number` (`\d+`).
+fn check_control_block_shape(kind: MessageType, block: &ControlBlock) -> Result<(), ComposeError> {
+    let model = control_block_model(kind);
+    let schema = |what: &str| ComposeError::Schema(format!("{kind:?}: {what}"));
+    if block.response.is_some() && !model.response_allowed {
+        return Err(schema("ControlBlock does not allow Response"));
+    }
+    if model.response_required && block.response.is_none() {
+        return Err(schema("ControlBlock requires Response"));
+    }
+    if block.challenge.is_some() && !model.challenge_allowed {
+        return Err(schema("ControlBlock does not allow Challenge"));
+    }
+    if model.challenge_required && block.challenge.is_none() {
+        return Err(schema("ControlBlock requires Challenge"));
+    }
+    let number = |value: &str, what: &str| {
+        if !value.chars().all(|c| c.is_ascii_digit()) {
+            Err(schema(&format!("{what} must be a number, got \"{value}\"")))
+        } else {
+            Ok(())
+        }
+    };
+    let check = |value: &Option<String>, use_: AttrUse, what: &str| match (value, use_) {
+        (Some(_), AttrUse::Prohibited) => {
+            Err(schema(&format!("ControlBlock does not allow {what}")))
+        }
+        (Some(v), _) => number(v, what),
+        (None, AttrUse::Required) => Err(schema(&format!("ControlBlock requires {what}"))),
+        (None, _) => Ok(()),
+    };
+    check(
+        &block.conversation_id,
+        model.conversation_id,
+        "ConversationId",
+    )?;
+    check(
+        &block.sequence_number.map(|s| s.to_string()),
+        model.sequence_number,
+        "SequenceNumber",
+    )?;
+    Ok(())
+}
+
+/// Validate the outbound certificate entries against a kind's NIC model
+/// and return them in the canonical schema sequence (stable within a
+/// slot, so multiple OtherAuthor/OtherReader entries keep their order).
+fn canonically_ordered_nic(
+    kind: MessageType,
+    entries: &[OutCertEntry],
+) -> Result<Vec<&OutCertEntry>, ComposeError> {
+    let model = nic_model(kind).ok_or_else(|| {
+        ComposeError::Schema(format!(
+            "{kind:?} does not allow NonIntermediaryCertificates"
+        ))
+    })?;
+    let mut counts = vec![0u32; model.len()];
+    for cert in entries {
+        let slot = model
+            .iter()
+            .position(|(use_, role, _, _)| *use_ == cert.use_ && *role == cert.role)
+            .ok_or_else(|| {
+                ComposeError::Schema(format!(
+                    "{kind:?} does not allow {}",
+                    cert.role.element_name(cert.use_)
+                ))
+            })?;
+        counts[slot] += 1;
+    }
+    for (slot, &(use_, role, min, max)) in model.iter().enumerate() {
+        if counts[slot] < min {
+            return Err(ComposeError::Schema(format!(
+                "{kind:?} requires {} ({} of {} present)",
+                role.element_name(use_),
+                counts[slot],
+                min
+            )));
+        }
+        if counts[slot] > max {
+            return Err(ComposeError::Schema(format!(
+                "{kind:?} allows at most {max} {}",
+                role.element_name(use_)
+            )));
+        }
+    }
+    let mut ordered = Vec::with_capacity(entries.len());
+    for (slot, _) in model.iter().enumerate() {
+        let (use_, role, _, _) = model[slot];
+        ordered.extend(entries.iter().filter(|c| c.use_ == use_ && c.role == role));
+    }
+    Ok(ordered)
 }
 
 /// One content unit in an outbound container.
@@ -152,6 +620,9 @@ pub struct OutProcessCard {
 pub struct OutProcessCardBundle {
     pub message_id: Option<String>,
     pub process_cards: Vec<OutProcessCard>,
+    /// Inspection report entries (the schemas require the report on
+    /// accept/process bundles).
+    pub inspections: Vec<super::Inspection>,
 }
 
 /// Certificate entry of the outbound NonIntermediaryCertificates header.
@@ -235,9 +706,38 @@ fn quality_header(
     )
 }
 
-/// Compose the message entry element (children XML depends on the type).
+/// Compose the message entry element (children XML depends on the type;
+/// child order per the entry-type sequences: responses carry Feedback
+/// first, chunk information comes after the entry content).
 fn entry_inner_xml(msg: &OutMessage, kind: MessageType) -> String {
     let mut inner = String::new();
+    let feedback_xml = || -> String {
+        let mut xml = String::new();
+        if !msg.feedback.is_empty() {
+            xml.push_str("<osci:Feedback>");
+            for fb in &msg.feedback {
+                let lang = fb
+                    .language
+                    .as_deref()
+                    .map(|l| format!(" xml:lang=\"{l}\""))
+                    .unwrap_or_default();
+                let mut text = Vec::new();
+                escape_text(&fb.text, &mut text).ok();
+                xml.push_str(&format!(
+                    "<osci:Entry{lang}><osci:Code>{}</osci:Code><osci:Text>{}</osci:Text></osci:Entry>",
+                    fb.code,
+                    String::from_utf8_lossy(&text)
+                ));
+            }
+            xml.push_str("</osci:Feedback>");
+        }
+        xml
+    };
+    // responseTo*Type sequences start with Feedback, before the echoed
+    // entry content
+    if kind.is_response() {
+        inner.push_str(&feedback_xml());
+    }
     match kind {
         MessageType::StoreDelivery | MessageType::ForwardDelivery => {
             if let Some(entry) = &msg.entry_inner {
@@ -286,23 +786,11 @@ fn entry_inner_xml(msg: &OutMessage, kind: MessageType) -> String {
     if !msg.process_card_bundles.is_empty() {
         inner.push_str(&bundles_xml(&msg.process_card_bundles));
     }
-    if !msg.feedback.is_empty() {
-        inner.push_str("<osci:Feedback>");
-        for fb in &msg.feedback {
-            let lang = fb
-                .language
-                .as_deref()
-                .map(|l| format!(" xml:lang=\"{l}\""))
-                .unwrap_or_default();
-            let mut text = Vec::new();
-            escape_text(&fb.text, &mut text).ok();
-            inner.push_str(&format!(
-                "<osci:Entry{lang}><osci:Code>{}</osci:Code><osci:Text>{}</osci:Text></osci:Entry>",
-                fb.code,
-                String::from_utf8_lossy(&text)
-            ));
-        }
-        inner.push_str("</osci:Feedback>");
+    if !kind.is_response() {
+        // request entries have no Feedback slot (the entry types of the
+        // delivery/fetch requests are Feedback-free); compose errors on
+        // it in compose_xml, this branch only keeps the legacy position
+        inner.push_str(&feedback_xml());
     }
     inner
 }
@@ -357,6 +845,48 @@ fn bundles_xml(bundles: &[OutProcessCardBundle]) -> String {
                 ));
             }
             xml.push_str("</osci:ProcessCard>");
+        }
+        if !bundle.inspections.is_empty() {
+            xml.push_str("<osci:InspectionReport>");
+            for inspection in &bundle.inspections {
+                xml.push_str("<osci:Inspection>");
+                if let Some(timestamp) = &inspection.timestamp {
+                    xml.push_str(&format!(
+                        "<osci:Timestamp><osci:Plain>{timestamp}</osci:Plain></osci:Timestamp>"
+                    ));
+                }
+                for (tag, value) in [
+                    ("X509SubjectName", &inspection.x509_subject_name),
+                    ("X509IssuerName", &inspection.x509_issuer_name),
+                    ("X509SerialNumber", &inspection.x509_serial_number),
+                ] {
+                    if let Some(value) = value {
+                        xml.push_str(&format!("<osci:{tag}>{value}</osci:{tag}>"));
+                    }
+                }
+                if let Some(cert_type) = &inspection.cert_type {
+                    xml.push_str(&format!(
+                        "<osci:CertType Type=\"{cert_type}\"></osci:CertType>"
+                    ));
+                }
+                if let Some(result) = &inspection.math_result {
+                    xml.push_str(&format!(
+                        "<osci:MathResult Result=\"{result}\"></osci:MathResult>"
+                    ));
+                }
+                if let Some(result) = &inspection.offline_result {
+                    xml.push_str(&format!(
+                        "<osci:OfflineResult Result=\"{result}\"></osci:OfflineResult>"
+                    ));
+                }
+                if let Some(result) = &inspection.online_result {
+                    xml.push_str(&format!(
+                        "<osci:OnlineResult Result=\"{result}\"></osci:OnlineResult>"
+                    ));
+                }
+                xml.push_str("</osci:Inspection>");
+            }
+            xml.push_str("</osci:InspectionReport>");
         }
         xml.push_str("</osci:ProcessCardBundle>");
     }
@@ -436,7 +966,36 @@ pub fn compose_xml(
     w.raw(schema.as_bytes()).ok();
     w.raw(b"><soap:Header>").ok();
 
-    // ControlBlock
+    // ControlBlock - shape-validated against the kind's schema
+    // restriction before anything is written
+    check_control_block_shape(kind, &msg.control_block)?;
+    // deliveries must carry a ContentPackage (their Body schema has it
+    // at minOccurs=1)
+    if body_requires_content_package(kind)
+        && msg.containers.is_empty()
+        && msg.encrypted_data.is_empty()
+    {
+        return Err(ComposeError::Schema(format!(
+            "{kind:?} requires a ContentPackage in the Body"
+        )));
+    }
+    // Feedback exists only in responseTo* entries
+    if !msg.feedback.is_empty() && !kind.is_response() {
+        return Err(ComposeError::Schema(format!(
+            "{kind:?} does not allow Feedback"
+        )));
+    }
+    // the EFFI schema requires at least one supported feature
+    if let Some(fd) = &msg.feature_description
+        && fd.features.is_empty()
+    {
+        return Err(ComposeError::Schema(
+            "FeatureDescription requires at least one supported feature".into(),
+        ));
+    }
+    if let Some(chunk) = &msg.chunk_information {
+        check_chunk_shape(kind, chunk)?;
+    }
     let mut header_out = Vec::new();
     {
         let mut hc = HeaderComposer::new(&mut header_out);
@@ -447,8 +1006,25 @@ pub fn compose_xml(
     }
     w.raw(&header_out).ok();
 
-    // DesiredLanguages
+    // DesiredLanguages - request schemas only (the soapResponseTo*.xsd
+    // header sequences have no DesiredLanguages slot); LanguagesList is
+    // an xsd:list of xs:language tokens (space separated)
     if let Some(languages) = &msg.desired_languages {
+        if kind.is_response() {
+            return Err(ComposeError::Schema(format!(
+                "{kind:?} does not allow DesiredLanguages"
+            )));
+        }
+        for token in languages.split_whitespace() {
+            let valid = token
+                .split('-')
+                .all(|sub| !sub.is_empty() && sub.chars().all(|c| c.is_ascii_alphanumeric()));
+            if !valid {
+                return Err(ComposeError::Schema(format!(
+                    "DesiredLanguages: \"{token}\" is not a language token"
+                )));
+            }
+        }
         let mut lang_out = Vec::new();
         {
             let mut hc = HeaderComposer::new(&mut lang_out);
@@ -460,12 +1036,39 @@ pub fn compose_xml(
         w.raw(&lang_out).ok();
     }
 
-    // Quality of timestamps (creation first, then reception)
-    if let Some(cryptographic) = msg.quality_creation {
-        quality_header(&mut w, false, cryptographic).map_err(ComposeError::Io)?;
-    }
-    if let Some(cryptographic) = msg.quality_reception {
-        quality_header(&mut w, true, cryptographic).map_err(ComposeError::Io)?;
+    // Quality of timestamps (creation first, then reception), in the
+    // cardinality the kind's schema demands
+    match qot_model(kind) {
+        QotModel::TwoRequired => {
+            quality_header(&mut w, false, msg.quality_creation.unwrap_or(false))
+                .map_err(ComposeError::Io)?;
+            quality_header(&mut w, true, msg.quality_reception.unwrap_or(false))
+                .map_err(ComposeError::Io)?;
+        }
+        QotModel::CreationRequired => {
+            if msg.quality_reception.is_some() {
+                return Err(ComposeError::Schema(format!(
+                    "{kind:?} allows only the creation QualityOfTimestamp"
+                )));
+            }
+            quality_header(&mut w, false, msg.quality_creation.unwrap_or(false))
+                .map_err(ComposeError::Io)?;
+        }
+        QotModel::OptionalTwo => {
+            if let Some(cryptographic) = msg.quality_creation {
+                quality_header(&mut w, false, cryptographic).map_err(ComposeError::Io)?;
+            }
+            if let Some(cryptographic) = msg.quality_reception {
+                quality_header(&mut w, true, cryptographic).map_err(ComposeError::Io)?;
+            }
+        }
+        QotModel::Forbidden => {
+            if msg.quality_creation.is_some() || msg.quality_reception.is_some() {
+                return Err(ComposeError::Schema(format!(
+                    "{kind:?} does not allow QualityOfTimestamp"
+                )));
+            }
+        }
     }
 
     // Message entry (header types; dialog/fetchProcessCard types go to
@@ -502,16 +1105,19 @@ pub fn compose_xml(
             .ok();
     }
 
-    // NonIntermediaryCertificates
-    if !msg.non_intermediary_certificates.is_empty() {
+    // NonIntermediaryCertificates - present iff the kind's schema has a
+    // slot; children validated against the per-type model and written in
+    // the canonical schema sequence
+    if !msg.non_intermediary_certificates.is_empty() || nic_required(kind) {
+        let ordered = canonically_ordered_nic(kind, &msg.non_intermediary_certificates)?;
         w.raw(
-            format!(
-                "<osci:NonIntermediaryCertificates{NS_BLOCK} Id=\"nonintermediarycertificates\" soap:actor=\"http://www.w3.org/2001/12/soap-envelope/actor/none\" soap:mustUnderstand=\"1\">"
+                format!(
+                    "<osci:NonIntermediaryCertificates{NS_BLOCK} Id=\"nonintermediarycertificates\" soap:actor=\"http://www.w3.org/2001/12/soap-envelope/actor/none\" soap:mustUnderstand=\"1\">"
+                )
+                .as_bytes(),
             )
-            .as_bytes(),
-        )
-        .ok();
-        for cert in &msg.non_intermediary_certificates {
+            .ok();
+        for cert in ordered {
             w.raw(
                 format!(
                     "<osci:{} Id=\"{}\"><ds:X509Data><ds:X509Certificate>",
@@ -709,9 +1315,14 @@ pub fn write_encrypted_data_xml<W: std::io::Write>(enc: &OutEncryptedData, w: &m
             w.raw(mgf.as_bytes()).ok();
             w.raw(b"\"></xenc11:MGF><ds:DigestMethod Algorithm=\"").ok();
             w.raw(digest.as_bytes()).ok();
-            w.raw(b"\"></ds:DigestMethod>").ok();
+            // the children closed the start tag already: appending the
+            // bare ">" of the childless branch here would become
+            // character content inside EncryptionMethod (issue #3)
+            w.raw(b"\"></ds:DigestMethod></xenc:EncryptionMethod><ds:KeyInfo>")
+                .ok();
+        } else {
+            w.raw(b"></xenc:EncryptionMethod><ds:KeyInfo>").ok();
         }
-        w.raw(b"></xenc:EncryptionMethod><ds:KeyInfo>").ok();
         match &recipient.key_info {
             KeyInfoRef::CertElementId(id) => {
                 w.raw(

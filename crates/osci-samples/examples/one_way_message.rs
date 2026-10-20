@@ -73,6 +73,7 @@ impl MockIntermediary for Intermediary {
             }
         };
         let response_kind = match kind {
+            MessageType::InitDialog => MessageType::ResponseToInitDialog,
             MessageType::GetMessageId => MessageType::ResponseToGetMessageId,
             MessageType::StoreDelivery => MessageType::ResponseToStoreDelivery,
             other => return Err(TransportError(format!("unhandled {other:?}"))),
@@ -82,21 +83,66 @@ impl MockIntermediary for Intermediary {
         } else {
             ("0800", "Auftrag ausgeführt")
         };
+        // the intermediary assigns the conversation id with the
+        // InitDialog response (the schema requires it there)
+        let mut response_block = ControlBlock {
+            conversation_id: request_block
+                .conversation_id
+                .clone()
+                .or_else(|| Some("4711".into())),
+            sequence_number: request_block.sequence_number,
+            response: request_block.challenge,
+            challenge: Some(osci_core::helper::base64::encode(b"next-challenge")),
+        };
+        if !osci_core::message::compose::control_block_allows_conversation(response_kind) {
+            response_block.conversation_id = None;
+        }
+        if !osci_core::message::compose::control_block_allows_sequence(response_kind) {
+            response_block.sequence_number = None;
+        }
         let out = OutMessage {
             kind: Some(response_kind),
-            control_block: ControlBlock {
-                conversation_id: request_block.conversation_id,
-                sequence_number: request_block.sequence_number,
-                response: request_block.challenge,
-                challenge: Some(osci_core::helper::base64::encode(b"next-challenge")),
-            },
-            desired_languages: Some("de".into()),
+            control_block: response_block,
+            // the response schemas have no DesiredLanguages slot (issue #3)
             feedback: vec![osci_core::message::compose::OutFeedback {
                 language: Some("de".into()),
                 code: code.into(),
                 text: text.into(),
             }],
-            entry_inner: Some("<osci:MessageId>aWQ=</osci:MessageId>".into()),
+            entry_inner: match response_kind {
+                MessageType::ResponseToGetMessageId => {
+                    Some("<osci:MessageId>aWQ=</osci:MessageId>".into())
+                }
+                // responseToStoreDeliveryType: Feedback + ProcessCardBundle
+                _ => None,
+            },
+            process_card_bundles: if response_kind == MessageType::ResponseToStoreDelivery {
+                // the bundle schema requires MessageId + ProcessCard +
+                // InspectionReport
+                vec![osci_core::message::compose::OutProcessCardBundle {
+                    message_id: Some("aWQ=".into()),
+                    process_cards: vec![osci_core::message::compose::OutProcessCard {
+                        creation: Some(chrono::Utc::now()),
+                        forwarding: None,
+                        reception: None,
+                        subject: Some("Hello OSCI".into()),
+                    }],
+                    inspections: vec![osci_core::message::Inspection {
+                        timestamp: Some(osci_core::helper::dates::format_iso8601(
+                            &chrono::Utc::now(),
+                        )),
+                        x509_subject_name: Some("CN=sample-intermediary".into()),
+                        x509_issuer_name: Some("CN=sample-ca".into()),
+                        x509_serial_number: Some("1".into()),
+                        cert_type: Some("advanced".into()),
+                        math_result: Some("ok".into()),
+                        offline_result: Some("valid".into()),
+                        online_result: Some("ok".into()),
+                    }],
+                }]
+            } else {
+                Vec::new()
+            },
             ..Default::default()
         };
         compose_message(&out, "MIME_boundary").map_err(|e| TransportError(e.to_string()))
@@ -110,7 +156,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server = std::thread::spawn(move || {
         let intermediary = Intermediary;
         // exactly the two rounds of this sample, then the listener drops
-        for stream in listener.incoming().flatten().take(2) {
+        for stream in listener.incoming().flatten().take(3) {
             let mut stream = stream;
             let mut request = Vec::new();
             let mut buf = [0u8; 8192];
@@ -137,7 +183,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let body = &request[header_end + 4..];
             let response = match intermediary.handle(body) {
                 Ok(bytes) => bytes,
-                Err(e) => format!("intermediary rejected: {e}").into_bytes(),
+                Err(e) => {
+                    eprintln!("intermediary rejected: {e}");
+                    format!("intermediary rejected: {e}").into_bytes()
+                }
             };
             let head = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/xml; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -171,7 +220,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut dialog =
         Dialog::new(Box::new(logging)).with_signer(Box::new(signer), "originator_signature".into());
 
-    // round 1: obtain a message id (like the reference sample's
+    // round 1: open the dialog (the intermediary assigns the
+    // conversation id with its response)
+    let mut init = client_message(MessageType::InitDialog);
+    let response = dialog.send(&mut init, &[], "MIME_boundary")?;
+    println!(
+        "intermediary: {} {}",
+        first_feedback(&response).unwrap().code,
+        first_feedback(&response).unwrap().text
+    );
+
+    // round 2: obtain a message id (like the reference sample's
     // GetMessageId before MediateDelivery/ForwardDelivery)
     let mut get_id = client_message(MessageType::GetMessageId);
     let response = dialog.send(&mut get_id, &[], "MIME_boundary")?;
@@ -181,7 +240,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         first_feedback(&response).unwrap().text
     );
 
-    // round 2: the store delivery with content
+    // round 3: the store delivery with content
     let mut store = client_message(MessageType::StoreDelivery);
     store.entry_inner = Some(
         "<osci:MessageId>bXNnLWlk</osci:MessageId><osci:Subject>Hello OSCI</osci:Subject>".into(),
@@ -201,7 +260,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let wire = seen.lock().unwrap().clone();
     println!(
-        "sent {} bytes over HTTP in 2 rounds; the wire messages carry valid transport signatures",
+        "sent {} bytes over HTTP in 3 rounds; the wire messages carry valid transport signatures",
         wire.len()
     );
     println!("sample completed");
@@ -211,16 +270,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn client_message(kind: MessageType) -> OutMessage {
-    OutMessage {
-        kind: Some(kind),
-        control_block: ControlBlock {
-            conversation_id: Some("sample-dialog".into()),
-            sequence_number: None,
-            response: None,
-            challenge: Some("c2FtcGxlLWNoYWxsZW5nZQ==".into()),
-        },
-        desired_languages: Some("de".into()),
-        non_intermediary_certificates: vec![
+    // per-type legal certificate sets (issue #3: GetMessageId allows the
+    // originator entries only; the store delivery additionally names the
+    // reader's cipher certificate, which its schema makes mandatory)
+    let certs = match kind {
+        // InitDialog: cipher originator (required) + signature originator
+        MessageType::InitDialog | MessageType::GetMessageId => vec![
+            OutCertEntry {
+                role: CertRole::Originator,
+                use_: CertUse::Cipher,
+                id: "originator_cipher".into(),
+                der: cert_der("alice_cipher_4096.pem"),
+            },
+            OutCertEntry {
+                role: CertRole::Originator,
+                use_: CertUse::Signature,
+                id: "originator_signature".into(),
+                der: cert_der("alice_signature_4096.pem"),
+            },
+        ],
+        _ => vec![
             OutCertEntry {
                 role: CertRole::Originator,
                 use_: CertUse::Cipher,
@@ -240,6 +309,17 @@ fn client_message(kind: MessageType) -> OutMessage {
                 der: cert_der("bob_cipher_4096.pem"),
             },
         ],
+    };
+    OutMessage {
+        kind: Some(kind),
+        control_block: ControlBlock {
+            conversation_id: Some("4711".into()),
+            sequence_number: None,
+            response: None,
+            challenge: Some("c2FtcGxlLWNoYWxsZW5nZQ==".into()),
+        },
+        desired_languages: Some("de".into()),
+        non_intermediary_certificates: certs,
         ..Default::default()
     }
 }
