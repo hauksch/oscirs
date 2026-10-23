@@ -50,7 +50,7 @@ struct Intermediary;
 impl MockIntermediary for Intermediary {
     fn handle(&self, message: &[u8]) -> Result<Vec<u8>, TransportError> {
         let stored = osci_core::message::stored::StoredMessage::load(message)
-            .map_err(|e| TransportError(e.to_string()))?;
+            .map_err(|e| TransportError::new(e.to_string()))?;
         let kind = stored.message.kind.unwrap_or(MessageType::GetMessageId);
         let request_block = {
             let doc = osci_core::xml::parser::parse(&String::from_utf8_lossy(&stored.xml)).unwrap();
@@ -76,7 +76,7 @@ impl MockIntermediary for Intermediary {
             MessageType::InitDialog => MessageType::ResponseToInitDialog,
             MessageType::GetMessageId => MessageType::ResponseToGetMessageId,
             MessageType::StoreDelivery => MessageType::ResponseToStoreDelivery,
-            other => return Err(TransportError(format!("unhandled {other:?}"))),
+            other => return Err(TransportError::new(format!("unhandled {other:?}"))),
         };
         let (code, text) = if kind == MessageType::StoreDelivery {
             ("0801", "Auftrag ausgeführt, Dialog weiterhin geöffnet")
@@ -145,7 +145,7 @@ impl MockIntermediary for Intermediary {
             },
             ..Default::default()
         };
-        compose_message(&out, "MIME_boundary").map_err(|e| TransportError(e.to_string()))
+        compose_message(&out, "MIME_boundary").map_err(|e| TransportError::new(e.to_string()))
     }
 }
 

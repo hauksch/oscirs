@@ -28,6 +28,7 @@ pub const DS_NS: &str = "http://www.w3.org/2000/09/xmldsig#";
 pub const BASE64_TRANSFORM: &str = "http://www.w3.org/2000/09/xmldsig#base64";
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum SecurityError {
     #[error("xml: {0}")]
     Xml(String),

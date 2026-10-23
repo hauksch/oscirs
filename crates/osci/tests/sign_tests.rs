@@ -2,7 +2,6 @@
 //! BOTH in our own pipeline and in the Java reference library's parser.
 
 use std::io::{Read, Write};
-use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use osci::security::verify_message;
@@ -15,31 +14,11 @@ use osci_core::soap::{CertRole, CertUse, ControlBlock};
 use osci_core::xml::parser;
 use osci_crypto::software::RsaSigner;
 
-fn corpus() -> PathBuf {
-    std::env::var_os("OSCI_CORPUS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .ancestors()
-                .nth(2)
-                .unwrap()
-                .join("testcorpus")
-        })
-}
-
-fn first_cert_der(pem_name: &str) -> Vec<u8> {
-    let dump = std::fs::read_to_string(corpus().join("certs").join(pem_name)).unwrap();
-    let start = dump.find("-----BEGIN CERTIFICATE-----").unwrap();
-    let after = &dump[start + "-----BEGIN CERTIFICATE-----".len()..];
-    let end = after.find("-----END CERTIFICATE-----").unwrap();
-    let b64: String = after[..end]
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect();
-    osci_core::helper::base64::decode(&b64).unwrap()
-}
-
 /// unsigned, XSD-valid StoreDelivery with inline content + attachment
+mod common;
+
+use common::{cert_der as first_cert_der, corpus};
+
 fn unsigned_store_delivery() -> (OutMessage, Vec<(String, Vec<u8>)>) {
     let mut out = OutMessage {
         kind: Some(osci_core::message::MessageType::StoreDelivery),
@@ -123,6 +102,32 @@ fn alice_signer() -> RsaSigner {
     .unwrap()
 }
 
+/// Feed `stream` to the Java oracle's `loadverify` mode; the caller
+/// asserts on the verdict line. Requires `make oracle` (guarded by the
+/// classpath check in the tests).
+fn oracle_loadverify(stream: &[u8]) -> String {
+    let root = corpus().parent().unwrap().to_path_buf();
+    let classpath = std::fs::read_to_string(root.join("oracle/build/classpath.txt")).unwrap();
+    let classpath = format!(
+        "{}:{}",
+        root.join("oracle/build").display(),
+        classpath.trim()
+    );
+    let java = root.join("tools/jdk11/bin/java");
+    let mut child = Command::new(&java)
+        .arg("-cp")
+        .arg(&classpath)
+        .arg("osci.oracle.CryptoSpike")
+        .arg("loadverify")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(stream).unwrap();
+    String::from_utf8_lossy(&child.wait_with_output().unwrap().stdout).into_owned()
+}
+
 /// Sign a composed message and verify it with our own pipeline.
 #[test]
 fn signed_message_verifies_locally() {
@@ -159,15 +164,11 @@ fn signed_message_verifies_locally() {
 
     // the signed message still parses as the same message type
     let doc = parser::parse(&signed).unwrap();
-    let message = parse_message(&doc).unwrap();
-    assert_eq!(
-        message.kind,
-        Some(osci_core::message::MessageType::StoreDelivery)
-    );
+    let parsed = parse_message(&doc).unwrap();
+    assert_eq!(parsed.kind, Some(MessageType::StoreDelivery));
 }
 
-/// Oracle cross-verification: the Java reference library accepts and
-/// verifies our signed message (transport signature check included).
+/// The Java reference loads our signed message and sees the signature.
 #[test]
 fn signed_message_verifies_in_java_reference() {
     let root = corpus().parent().unwrap().to_path_buf();
@@ -203,31 +204,7 @@ fn signed_message_verifies_in_java_reference() {
     signed_stream.extend_from_slice(b"\r\n--MIME_boundary\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: binary\r\nContent-ID: <test.txt>\r\n\r\nattached data");
     signed_stream.extend_from_slice(b"\r\n--MIME_boundary--\r\n");
 
-    let classpath = std::fs::read_to_string(root.join("oracle/build/classpath.txt")).unwrap();
-    let classpath = format!(
-        "{}:{}",
-        root.join("oracle/build").display(),
-        classpath.trim()
-    );
-    let java = root.join("tools/jdk11/bin/java");
-    let mut child = Command::new(&java)
-        .arg("-cp")
-        .arg(&classpath)
-        .arg("osci.oracle.CryptoSpike")
-        .arg("loadverify")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(&signed_stream)
-        .unwrap();
-    let output = child.wait_with_output().unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = oracle_loadverify(&signed_stream);
     assert!(
         stdout.starts_with("LOADED"),
         "java reference rejected our signed message: {stdout}"
@@ -282,31 +259,7 @@ fn tampered_signature_rejected_by_java_reference() {
     signed_stream.extend_from_slice(signed.as_bytes());
     signed_stream.extend_from_slice(b"\r\n--MIME_boundary--\r\n");
 
-    let classpath = std::fs::read_to_string(root.join("oracle/build/classpath.txt")).unwrap();
-    let classpath = format!(
-        "{}:{}",
-        root.join("oracle/build").display(),
-        classpath.trim()
-    );
-    let java = root.join("tools/jdk11/bin/java");
-    let mut child = Command::new(&java)
-        .arg("-cp")
-        .arg(&classpath)
-        .arg("osci.oracle.CryptoSpike")
-        .arg("loadverify")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(&signed_stream)
-        .unwrap();
-    let output = child.wait_with_output().unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = oracle_loadverify(&signed_stream);
     assert!(
         stdout.starts_with("REJECTED"),
         "java reference accepted tampering: {stdout}"

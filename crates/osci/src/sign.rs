@@ -15,6 +15,7 @@ use osci_crypto::software::Signer;
 pub const C14N_TRANSFORM: &str = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315";
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum SignError {
     #[error("xml: {0}")]
     Xml(String),

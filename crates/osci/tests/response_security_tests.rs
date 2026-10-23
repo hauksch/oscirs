@@ -5,6 +5,8 @@
 
 mod common;
 
+use common::{cert_der, corpus};
+
 use std::io::Read;
 use std::sync::Mutex;
 
@@ -17,22 +19,6 @@ use osci_core::soap::{CertRole, CertUse, ControlBlock};
 use osci_crypto::algorithms::SIGNATURE_ECDSA_SHA384;
 use osci_crypto::software::{RsaDecrypter, RsaSigner, Signer};
 use osci_transport::{LoopbackTransport, MockIntermediary, TransportError};
-
-fn corpus() -> std::path::PathBuf {
-    common::corpus()
-}
-
-fn cert_der(pem: &str) -> Vec<u8> {
-    let dump = std::fs::read_to_string(corpus().join("certs").join(pem)).unwrap();
-    let start = dump.find("-----BEGIN CERTIFICATE-----").unwrap();
-    let after = &dump[start + 27..];
-    let end = after.find("-----END CERTIFICATE-----").unwrap();
-    let b64: String = after[..end]
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect();
-    osci_core::helper::base64::decode(&b64).unwrap()
-}
 
 /// DER bytes of the PKCS#8 private key in a keystore dump.
 fn private_key_der(pem_name: &str) -> Vec<u8> {
@@ -98,16 +84,17 @@ impl SigningIntermediary {
 
 impl MockIntermediary for SigningIntermediary {
     fn handle(&self, message: &[u8]) -> Result<Vec<u8>, TransportError> {
-        let stored = StoredMessage::load(message).map_err(|e| TransportError(e.to_string()))?;
+        let stored =
+            StoredMessage::load(message).map_err(|e| TransportError::new(e.to_string()))?;
         let request_xml = String::from_utf8_lossy(&stored.xml).into_owned();
         let doc = osci_core::xml::parser::parse(&request_xml)
-            .map_err(|e| TransportError(e.to_string()))?;
+            .map_err(|e| TransportError::new(e.to_string()))?;
         let header =
-            osci_core::soap::find_header(&doc).ok_or_else(|| TransportError("no header".into()))?;
+            osci_core::soap::find_header(&doc).ok_or_else(|| TransportError::new("no header"))?;
         let cb = header
             .elements()
             .find(|e| e.local == "ControlBlock")
-            .ok_or_else(|| TransportError("no control block".into()))?;
+            .ok_or_else(|| TransportError::new("no control block"))?;
         let request_block = ControlBlock {
             conversation_id: cb.attr("ConversationId").map(str::to_string),
             sequence_number: cb.attr("SequenceNumber").and_then(|v| v.parse().ok()),
@@ -171,8 +158,8 @@ impl MockIntermediary for SigningIntermediary {
         if !osci_core::message::compose::control_block_allows_sequence(response_kind) {
             out.control_block.sequence_number = None;
         }
-        let stream =
-            compose_message(&out, "MIME_boundary").map_err(|e| TransportError(e.to_string()))?;
+        let stream = compose_message(&out, "MIME_boundary")
+            .map_err(|e| TransportError::new(e.to_string()))?;
 
         if response_kind != MessageType::ResponseToFetchDelivery {
             return Ok(stream);
@@ -182,7 +169,7 @@ impl MockIntermediary for SigningIntermediary {
         let xml_start = stream
             .windows(marker.len())
             .position(|w| w == marker.as_bytes())
-            .ok_or_else(|| TransportError("no xml part".into()))?
+            .ok_or_else(|| TransportError::new("no xml part"))?
             + marker.len();
         let xml_end = stream[xml_start..]
             .windows(4)
@@ -190,7 +177,7 @@ impl MockIntermediary for SigningIntermediary {
             .map(|p| xml_start + p)
             .unwrap_or(stream.len());
         let xml = String::from_utf8(stream[xml_start..xml_end].to_vec())
-            .map_err(|e| TransportError(e.to_string()))?;
+            .map_err(|e| TransportError::new(e.to_string()))?;
         let mut signed = osci::sign::sign_message_xml(
             &xml,
             &osci::sign::SignParams {
@@ -202,7 +189,7 @@ impl MockIntermediary for SigningIntermediary {
                 header_element: Some("SupplierSignature"),
             },
         )
-        .map_err(|e| TransportError(e.to_string()))?;
+        .map_err(|e| TransportError::new(e.to_string()))?;
         if *self.corrupt_once.lock().unwrap() {
             // flip the signature value: replace the base64 payload
             let pos = signed.find("<ds:SignatureValue>").unwrap() + "<ds:SignatureValue>".len();
@@ -231,7 +218,7 @@ impl MockIntermediary for SigningIntermediary {
                 &osci::security::EncryptConfig::default(),
                 "MIME_boundary",
             )
-            .map_err(|e| TransportError(e.to_string()));
+            .map_err(|e| TransportError::new(e.to_string()));
         }
         Ok(response)
     }
@@ -382,9 +369,10 @@ struct UnsignedIntermediary;
 
 impl MockIntermediary for UnsignedIntermediary {
     fn handle(&self, message: &[u8]) -> Result<Vec<u8>, TransportError> {
-        let stored = StoredMessage::load(message).map_err(|e| TransportError(e.to_string()))?;
+        let stored =
+            StoredMessage::load(message).map_err(|e| TransportError::new(e.to_string()))?;
         let doc = osci_core::xml::parser::parse(&String::from_utf8_lossy(&stored.xml))
-            .map_err(|e| TransportError(e.to_string()))?;
+            .map_err(|e| TransportError::new(e.to_string()))?;
         let kind = request_entry_kind(&doc);
         let response_kind = match kind {
             MessageType::InitDialog => MessageType::ResponseToInitDialog,
@@ -435,7 +423,7 @@ impl MockIntermediary for UnsignedIntermediary {
             }),
             ..Default::default()
         };
-        compose_message(&out, "MIME_boundary").map_err(|e| TransportError(e.to_string()))
+        compose_message(&out, "MIME_boundary").map_err(|e| TransportError::new(e.to_string()))
     }
 }
 

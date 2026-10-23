@@ -9,17 +9,9 @@ use osci::security::{VerificationReport, decrypt_all_encrypted_data, verify_mess
 use osci_core::helper::mime::MimeParser;
 use osci_crypto::software::{Decrypter, RsaDecrypter};
 
-fn corpus() -> PathBuf {
-    std::env::var_os("OSCI_CORPUS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .ancestors()
-                .nth(2)
-                .unwrap()
-                .join("testcorpus")
-        })
-}
+mod common;
+
+use common::corpus;
 
 fn messages_dir() -> PathBuf {
     corpus().join("messages")

@@ -24,6 +24,7 @@ use super::{Document, Element, Node};
 const MAX_ELEMENT_DEPTH: usize = 256;
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum XmlError {
     #[error("malformed XML: {0}")]
     Malformed(String),

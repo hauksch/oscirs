@@ -63,7 +63,6 @@ enum WriterState {
 }
 
 enum Source {
-    Memory(std::io::Cursor<Vec<u8>>),
     Plain(File),
     Encrypted(DecryptReader),
 }
@@ -150,6 +149,8 @@ pub struct SwapBuffer {
     writer: Option<WriterState>,
     data: Option<Data>,
     source: Option<Source>,
+    /// Read position for memory-backed data (the reader owns no copy).
+    memory_pos: usize,
 }
 
 impl Default for SwapBuffer {
@@ -171,6 +172,7 @@ impl SwapBuffer {
             writer: Some(WriterState::Memory(Vec::new())),
             data: None,
             source: None,
+            memory_pos: 0,
         }
     }
 
@@ -229,6 +231,7 @@ impl SwapBuffer {
     /// Rewind and read the data again from the beginning.
     pub fn reset(&mut self) -> io::Result<()> {
         self.seal()?;
+        self.memory_pos = 0;
         self.open_source()
     }
 
@@ -274,23 +277,27 @@ impl SwapBuffer {
     }
 
     fn open_source(&mut self) -> io::Result<()> {
-        self.source = Some(match self.data.as_ref() {
-            Some(Data::Memory(data)) => Source::Memory(std::io::Cursor::new(data.clone())),
-            None => Source::Memory(std::io::Cursor::new(Vec::new())),
-            Some(Data::PlainFile(path)) => Source::Plain(File::open(path)?),
+        // Memory-backed data is read straight from the stored bytes (the
+        // reader keeps the position); only file-backed sources need an
+        // opened handle. This avoids deep-copying the buffer per reader.
+        self.source = match self.data.as_ref() {
+            Some(Data::Memory(_)) | None => None,
+            Some(Data::PlainFile(path)) => Some(Source::Plain(File::open(path)?)),
             Some(Data::EncryptedFile(path)) => {
-                Source::Encrypted(DecryptReader::open(File::open(path)?)?)
+                Some(Source::Encrypted(DecryptReader::open(File::open(path)?)?))
             }
-        });
+        };
         Ok(())
     }
 
     fn spill_to_file(&mut self) -> io::Result<()> {
-        let WriterState::Memory(buffered) = self.writer.as_ref().expect("spill only from memory")
-        else {
-            return Ok(());
+        // take the buffered bytes out of the writer state (the writer is
+        // replaced by the file state below, before anything is written)
+        // instead of cloning up to the whole buffer
+        let buffered = match self.writer.as_mut() {
+            Some(WriterState::Memory(buffered)) => std::mem::take(buffered),
+            _ => return Ok(()),
         };
-        let buffered = buffered.clone();
         let mut path = std::env::temp_dir();
         path.push(format!(
             "osci-{}-{}",
@@ -390,8 +397,19 @@ pub struct SwapBufferReader<'a> {
 
 impl Read for SwapBufferReader<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        // memory-backed: read straight from the stored bytes at the
+        // buffer's read position (no copy of the buffer itself)
+        if let Some(Data::Memory(data)) = &self.buffer.data {
+            let pos = self.buffer.memory_pos;
+            if pos >= data.len() {
+                return Ok(0);
+            }
+            let n = buf.len().min(data.len() - pos);
+            buf[..n].copy_from_slice(&data[pos..pos + n]);
+            self.buffer.memory_pos += n;
+            return Ok(n);
+        }
         match self.buffer.source.as_mut() {
-            Some(Source::Memory(cursor)) => cursor.read(buf),
             Some(Source::Plain(file)) => file.read(buf),
             Some(Source::Encrypted(reader)) => reader.read(buf),
             None => Ok(0),

@@ -1,6 +1,7 @@
 //! Error type for the crypto layer.
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum CryptoError {
     #[error("unsupported algorithm: {0}")]
     UnsupportedAlgorithm(String),

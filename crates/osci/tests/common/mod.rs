@@ -3,4 +3,4 @@
 #![allow(unknown_lints)]
 #![allow(unused_imports, dead_code)]
 
-pub use test_utils::{corpus, message, messages_dir, workspace_root};
+pub use test_utils::{cert_der, corpus, message, messages_dir, workspace_root};

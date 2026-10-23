@@ -12,9 +12,21 @@ pub trait Transport: Send + Sync {
     fn send(&self, message: &[u8]) -> Result<Vec<u8>, TransportError>;
 }
 
+/// Transport-layer failure. Construct with [`TransportError::new`].
 #[derive(Debug, thiserror::Error)]
 #[error("transport: {0}")]
-pub struct TransportError(pub String);
+#[non_exhaustive]
+pub struct TransportError(String);
+
+impl TransportError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self(message.into())
+    }
+
+    pub fn message(&self) -> &str {
+        &self.0
+    }
+}
 
 /// The intermediary's reply to one message.
 pub struct IntermediaryReply {

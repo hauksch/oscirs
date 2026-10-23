@@ -177,7 +177,7 @@ proptest! {
 }
 
 /// Message compose -> parse roundtrip with random content.
-fn store_delivery(text: String, payload: Vec<u8>) -> OutMessage {
+fn store_delivery(text: String) -> OutMessage {
     let mut out = OutMessage {
         kind: Some(MessageType::StoreDelivery),
         control_block: ControlBlock {
@@ -208,15 +208,14 @@ fn store_delivery(text: String, payload: Vec<u8>) -> OutMessage {
         }],
         encrypted_attachments: Vec::new(),
     });
-    let _ = payload;
     out
 }
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(32))]
     #[test]
-    fn message_compose_parse_roundtrip(text in arb_text(), payload in arb_bytes()) {
-        let out = store_delivery(text, payload);
+    fn message_compose_parse_roundtrip(text in arb_text()) {
+        let out = store_delivery(text);
         let stream = compose_message(&out, "MIME_boundary").unwrap();
         let stored = osci_core::message::stored::StoredMessage::load(&stream).unwrap();
         prop_assert_eq!(stored.message.kind, Some(MessageType::StoreDelivery));

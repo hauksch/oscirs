@@ -15,6 +15,7 @@ use crate::soap::{self, OSCI_NS, OSCI2017_NS};
 use crate::xml::{Document, Element, SOAP_ENVELOPE_NS};
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum MessageError {
     #[error("no SOAP envelope")]
     NoEnvelope,

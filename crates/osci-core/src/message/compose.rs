@@ -19,6 +19,7 @@ pub const MIME_BOUNDARY_PREFIX: &str = "MIME_boundary";
 pub const MESSAGE_CONTENT_ID: &str = "osci@message";
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ComposeError {
     #[error("message kind missing or unsupported: {0}")]
     Kind(String),

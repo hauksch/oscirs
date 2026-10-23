@@ -15,6 +15,7 @@ use crate::security::{StoredMessageLike, VerificationReport, decrypt_transport_m
 use crate::sign::{SignParams, sign_message_xml};
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DialogError {
     #[error("wrong control block in response ({0})")]
     WrongControlBlock(String),

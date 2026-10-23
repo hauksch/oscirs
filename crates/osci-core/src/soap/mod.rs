@@ -28,6 +28,7 @@ pub fn ns_block_2017() -> String {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum SoapError {
     #[error("no SOAP envelope")]
     NoEnvelope,

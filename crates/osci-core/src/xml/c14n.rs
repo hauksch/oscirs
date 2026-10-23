@@ -39,6 +39,7 @@ pub const DIGEST_SHA3_384: &str = "http://www.w3.org/2007/05/xmldsig-more#sha3-3
 pub const DIGEST_SHA3_512: &str = "http://www.w3.org/2007/05/xmldsig-more#sha3-512";
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum C14nError {
     #[error(transparent)]
     Parse(#[from] parser::XmlError),
@@ -161,7 +162,10 @@ struct Walker {
     /// Active SplitWriter captures; writes go to `out` and all captures,
     /// `capture_only` writes go to the innermost capture only.
     captures: Vec<Vec<u8>>,
-    /// sampleNSStack: effective prefix -> URI bindings.
+    /// sampleNSStack: each frame holds the element's OWN xmlns
+    /// declarations (declaration qname -> URI); lookups walk the chain.
+    /// Delta frames avoid cloning the whole in-scope map per element -
+    /// only signed elements materialize the full snapshot.
     ns_stack: Vec<BTreeMap<String, String>>,
     element_depth: usize,
     inside_header: bool,
@@ -252,6 +256,36 @@ impl Walker {
             && (element.local == "ClientSignature" || element.local == "SupplierSignature")
     }
 
+    /// Look a declaration qname up in the enclosing scope chain (innermost
+    /// first).
+    fn scope_get(&self, key: &str) -> Option<&String> {
+        self.ns_stack.iter().rev().find_map(|f| f.get(key))
+    }
+
+    /// The full in-scope binding map (sorted) - only needed for signed
+    /// elements, which emit the whole namespace block.
+    fn scope_snapshot(&self) -> BTreeMap<String, String> {
+        let mut map = BTreeMap::new();
+        for frame in &self.ns_stack {
+            for (k, v) in frame {
+                map.insert(k.clone(), v.clone());
+            }
+        }
+        map
+    }
+
+    /// Resolve the element's prefix against the parent scope chain (the
+    /// frames as they are; the element's own declarations are NOT in
+    /// scope - bug-compatible with the reference handler).
+    fn element_uri_in_parent_scope(&self, element: &Element) -> Option<String> {
+        let key = if element.prefix.is_empty() {
+            "xmlns".to_string()
+        } else {
+            format!("xmlns:{}", element.prefix)
+        };
+        self.scope_get(&key).cloned()
+    }
+
     fn element(&mut self, element: &Element) -> Result<(), C14nError> {
         self.start_element(element)?;
 
@@ -284,7 +318,6 @@ impl Walker {
         let mut signed_element = false;
         let mut read_ns = false;
 
-        let parent_bindings = self.ns_stack.last().cloned().unwrap_or_default();
         self.element_depth += 1;
 
         // SOAP namespace prefix detection (first element declaring the
@@ -312,7 +345,7 @@ impl Walker {
         // Track ds:Signature elements: each gets a capture slot, and only
         // their direct-child SignedInfos are captured (A1).
         let sig_element = element.local == "Signature"
-            && element_uri(element, &parent_bindings).as_deref() == Some(XMLDSIG_NS);
+            && self.element_uri_in_parent_scope(element).as_deref() == Some(XMLDSIG_NS);
         if sig_element {
             self.signature_captures.push(None);
             self.signature_depths.push(self.element_depth);
@@ -329,10 +362,10 @@ impl Walker {
             signed_element = true;
             self.control_block_id = format!("#{}", element.id_attr().unwrap_or_default());
             self.start_capture();
-        } else if (self.inside_header
-            && self.element_depth == 3
-            && !self.is_osci_signature_header(element, &parent_bindings))
-            || (self.element_depth == 2 && qname == self.soap_envelope_qname("Body"))
+        } else if (self.inside_header && self.element_depth == 3 && {
+            let parent_scope = self.scope_snapshot();
+            !self.is_osci_signature_header(element, &parent_scope)
+        }) || (self.element_depth == 2 && qname == self.soap_envelope_qname("Body"))
         {
             let id = element.id_attr().map(str::to_string);
             let key = format!("#{}", id.clone().unwrap_or_default());
@@ -381,18 +414,22 @@ impl Walker {
             read_ns = true;
         }
 
-        // Attribute collection: xmlns declarations first (so later
-        // attributes can resolve their prefixes against this element's own
-        // bindings, like the pre-resolved SAX attributes), then the rest.
-        let mut sample_map = parent_bindings.clone();
+        // Attribute collection: this element's own declarations form the
+        // new delta frame (no full-scope copy); xmlns declarations are
+        // collected first (so later attributes can resolve their prefixes
+        // against this element's own bindings, like the pre-resolved SAX
+        // attributes), then the rest.
+        let mut own: BTreeMap<String, String> = BTreeMap::new();
         let mut out_map: BTreeMap<String, String> = BTreeMap::new();
         for (k, v) in &element.attrs {
             if k.starts_with("xmlns:") || k == "xmlns" {
-                let redundant = sample_map.get(k) == Some(v);
+                // redundant when already bound to the same URI in the
+                // parent chain or by an earlier own declaration
+                let redundant = own.get(k) == Some(v) || self.scope_get(k) == Some(v);
                 if !redundant {
                     out_map.insert(format!(" ,{k}"), v.clone());
                 }
-                sample_map.insert(k.clone(), v.clone());
+                own.insert(k.clone(), v.clone());
             }
         }
         for (k, v) in &element.attrs {
@@ -401,16 +438,18 @@ impl Walker {
             }
             if let Some((prefix, _)) = k.split_once(':') {
                 // bindings are keyed by declaration qname (xmlns:foo)
-                match sample_map.get(&format!("xmlns:{prefix}")) {
-                    Some(uri) => out_map.insert(format!("{uri},{k}"), v.clone()),
+                let key = format!("xmlns:{prefix}");
+                let bound = own.get(&key).or_else(|| self.scope_get(&key));
+                match bound {
                     // unbound prefix: the parser already rejects this
+                    Some(uri) => out_map.insert(format!("{uri},{k}"), v.clone()),
                     None => out_map.insert(format!(",{k}"), v.clone()),
                 };
             } else {
                 out_map.insert(format!(",{k}"), v.clone());
             }
         }
-        self.ns_stack.push(sample_map.clone());
+        self.ns_stack.push(own);
 
         let tmp_map = if read_ns {
             std::mem::take(&mut out_map)
@@ -422,7 +461,9 @@ impl Walker {
         self.write_through(qname.as_bytes());
 
         if signed_element {
-            for (k, v) in &sample_map {
+            // signed elements emit the whole in-scope namespace block
+            let snapshot = self.scope_snapshot();
+            for (k, v) in &snapshot {
                 if !v.is_empty() {
                     out_map.insert(format!(" ,{k}"), v.clone());
                 }
@@ -505,13 +546,10 @@ impl Walker {
         } else if self.inside_header && self.element_depth == 2 && element.local == "ControlBlock" {
             self.control_block = Some(self.end_capture());
             self.current_id = None;
-        } else if (self.inside_header
-            && self.element_depth == 2
-            && !self.is_osci_signature_header(
-                element,
-                &self.ns_stack.last().cloned().unwrap_or_default(),
-            ))
-            || (self.element_depth == 1 && qname == self.soap_envelope_qname("Body"))
+        } else if self.inside_header && self.element_depth == 2 && {
+            let scope = self.scope_snapshot();
+            !self.is_osci_signature_header(element, &scope)
+        } || (self.element_depth == 1 && qname == self.soap_envelope_qname("Body"))
         {
             if let Some((start, algo, key)) = self.digest_region.take()
                 && self.current_id.is_some()
@@ -532,9 +570,10 @@ impl Walker {
 
         // Pop the signature tracking while the element's own bindings are
         // still on the stack (needed to resolve its prefix).
-        let sig_element = element.local == "Signature"
-            && element_uri(element, self.ns_stack.last().unwrap_or(&BTreeMap::new())).as_deref()
-                == Some(XMLDSIG_NS);
+        let sig_element = element.local == "Signature" && {
+            let scope = self.scope_snapshot();
+            element_uri(element, &scope).as_deref() == Some(XMLDSIG_NS)
+        };
         if sig_element {
             self.signature_depths.pop();
         }

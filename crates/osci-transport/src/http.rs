@@ -50,7 +50,7 @@ impl HttpTransport {
             .timeout_global(Some(std::time::Duration::from_millis(config.timeout_ms)));
         if let Some(proxy) = &config.proxy {
             let proxy =
-                ureq::Proxy::new(proxy).map_err(|e| TransportError(format!("proxy: {e}")))?;
+                ureq::Proxy::new(proxy).map_err(|e| TransportError::new(format!("proxy: {e}")))?;
             builder = builder.proxy(Some(proxy));
         }
         let agent: ureq::Agent = builder.build().into();
@@ -71,11 +71,11 @@ impl Transport for HttpTransport {
             .header("Cache-Control", "no-cache")
             .header("User-Agent", &self.config.user_agent)
             .send(message)
-            .map_err(|e| TransportError(format!("http: {e}")))?;
+            .map_err(|e| TransportError::new(format!("http: {e}")))?;
 
         let status = response.status().as_u16();
         if !(200..300).contains(&status) {
-            return Err(TransportError(format!(
+            return Err(TransportError::new(format!(
                 "http status {status} from intermediary"
             )));
         }
@@ -85,7 +85,7 @@ impl Transport for HttpTransport {
             .into_body()
             .into_reader()
             .read_to_end(&mut body)
-            .map_err(|e| TransportError(format!("http body: {e}")))?;
+            .map_err(|e| TransportError::new(format!("http body: {e}")))?;
         Ok(body)
     }
 }

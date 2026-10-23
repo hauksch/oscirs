@@ -3,6 +3,8 @@
 
 mod common;
 
+use common::{cert_der, corpus};
+
 use std::io::Read;
 
 use base64::Engine as _;
@@ -14,22 +16,6 @@ use osci_core::message::MessageType;
 use osci_core::message::compose::{OutCertEntry, OutContent, OutContentContainer, OutMessage};
 use osci_core::soap::{CertRole, CertUse, ControlBlock};
 use osci_crypto::software::{Decrypter, RsaDecrypter};
-
-fn corpus() -> std::path::PathBuf {
-    common::corpus()
-}
-
-fn cert_der(pem: &str) -> Vec<u8> {
-    let dump = std::fs::read_to_string(corpus().join("certs").join(pem)).unwrap();
-    let start = dump.find("-----BEGIN CERTIFICATE-----").unwrap();
-    let after = &dump[start + 27..];
-    let end = after.find("-----END CERTIFICATE-----").unwrap();
-    let b64: String = after[..end]
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect();
-    osci_core::helper::base64::decode(&b64).unwrap()
-}
 
 /// Legal NonIntermediaryCertificates for a StoreDelivery (the schema
 /// makes the addressee cipher certificate mandatory).

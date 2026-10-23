@@ -4,6 +4,8 @@
 
 mod common;
 
+use common::{cert_der, corpus};
+
 use std::io::Read;
 use std::sync::{Arc, Mutex};
 
@@ -17,22 +19,6 @@ use osci_core::message::{MessageType, OsciMessage};
 use osci_core::soap::{CertRole, CertUse, ControlBlock};
 use osci_crypto::software::RsaSigner;
 use osci_transport::{LoopbackTransport, MockIntermediary, TransportError};
-
-fn corpus() -> std::path::PathBuf {
-    common::corpus()
-}
-
-fn cert_der(pem: &str) -> Vec<u8> {
-    let dump = std::fs::read_to_string(corpus().join("certs").join(pem)).unwrap();
-    let start = dump.find("-----BEGIN CERTIFICATE-----").unwrap();
-    let after = &dump[start + 27..];
-    let end = after.find("-----END CERTIFICATE-----").unwrap();
-    let b64: String = after[..end]
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect();
-    osci_core::helper::base64::decode(&b64).unwrap()
-}
 
 /// The mock intermediary: validates the request's control-block protocol
 /// and replies with the matching ResponseTo* message (feedback 0800/0801)
@@ -95,17 +81,18 @@ fn extract_xml(stream: &[u8]) -> String {
 
 impl MockIntermediary for ScriptedIntermediary {
     fn handle(&self, message: &[u8]) -> Result<Vec<u8>, TransportError> {
-        let stored = StoredMessage::load(message).map_err(|e| TransportError(e.to_string()))?;
+        let stored =
+            StoredMessage::load(message).map_err(|e| TransportError::new(e.to_string()))?;
         let kind = stored
             .message
             .kind
-            .ok_or_else(|| TransportError("no kind".into()))?;
+            .ok_or_else(|| TransportError::new("no kind"))?;
         let request_block = control_block_of(&String::from_utf8_lossy(&stored.xml));
 
         // protocol validation on the intermediary side: the request must
         // carry a challenge (our previous one answered)
         if request_block.challenge.is_none() {
-            return Err(TransportError("request without challenge".into()));
+            return Err(TransportError::new("request without challenge"));
         }
         self.seen
             .lock()
@@ -125,7 +112,7 @@ impl MockIntermediary for ScriptedIntermediary {
             MessageType::ForwardDelivery => MessageType::ResponseToForwardDelivery,
             MessageType::MediateDelivery => MessageType::ResponseToMediateDelivery,
             MessageType::FetchDelivery => MessageType::ResponseToFetchDelivery,
-            other => return Err(TransportError(format!("unhandled type {other:?}"))),
+            other => return Err(TransportError::new(format!("unhandled type {other:?}"))),
         };
 
         // control-block protocol: response answers the request's
@@ -256,7 +243,7 @@ impl MockIntermediary for ScriptedIntermediary {
             .unwrap_or_default(),
             ..Default::default()
         };
-        compose_message(&out, "MIME_boundary").map_err(|e| TransportError(e.to_string()))
+        compose_message(&out, "MIME_boundary").map_err(|e| TransportError::new(e.to_string()))
     }
 }
 
