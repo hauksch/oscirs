@@ -10,7 +10,7 @@ use osci::sign::{SignParams, sign_message_xml};
 use osci_core::message::compose::{
     OutAttachment, OutCertEntry, OutContent, OutContentContainer, OutMessage, compose_message,
 };
-use osci_core::message::parse_message;
+use osci_core::message::{MessageType, parse_message};
 use osci_core::soap::{CertRole, CertUse, ControlBlock};
 use osci_core::xml::parser;
 use osci_crypto::software::RsaSigner;
@@ -310,5 +310,85 @@ fn tampered_signature_rejected_by_java_reference() {
     assert!(
         stdout.starts_with("REJECTED"),
         "java reference accepted tampering: {stdout}"
+    );
+}
+
+/// Custom (vendor extension) headers become transport-signature
+/// references: sign a StoreDelivery carrying the corpus MessageMetaData
+/// fragment and verify through our own pipeline.
+#[test]
+fn signed_custom_header_verifies_with_reference() {
+    use osci_core::message::compose::{OutContent, OutContentContainer, OutCustomHeader};
+
+    let mut out = OutMessage {
+        kind: Some(MessageType::StoreDelivery),
+        control_block: ControlBlock {
+            sequence_number: Some(1),
+            challenge: Some("Y2hhbGxlbmdl".into()),
+            conversation_id: Some("4711".into()),
+            response: None,
+        },
+        desired_languages: Some("de".into()),
+        non_intermediary_certificates: vec![
+            OutCertEntry {
+                role: CertRole::Originator,
+                use_: CertUse::Signature,
+                id: "originator_signature".into(),
+                der: first_cert_der("alice_signature_4096.pem"),
+            },
+            OutCertEntry {
+                role: CertRole::Addressee,
+                use_: CertUse::Cipher,
+                id: "addressee_cipher".into(),
+                der: first_cert_der("bob_cipher_4096.pem"),
+            },
+        ],
+        entry_inner: Some(
+            "<osci:MessageId>bXNn</osci:MessageId><osci:Subject>S</osci:Subject>".into(),
+        ),
+        custom_headers: vec![OutCustomHeader {
+            id: "MetaData".into(),
+            xml: std::fs::read_to_string(corpus().join("extension").join("xtaMmdOsci.xml"))
+                .unwrap(),
+        }],
+        ..Default::default()
+    };
+    out.containers.push(OutContentContainer {
+        id: "contentcontainer".into(),
+        contents: vec![OutContent {
+            id: "content1".into(),
+            text: Some("payload".into()),
+            href: None,
+        }],
+        encrypted_attachments: Vec::new(),
+    });
+    let stream = compose_message(&out, "MIME_boundary").unwrap();
+    let xml = xml_part(&stream);
+    let signer = alice_signer();
+    let signed = sign_message_xml(
+        &xml,
+        &SignParams {
+            signer: &signer,
+            method: None,
+            digest: None,
+            certificate_id: "originator_signature".into(),
+            attachments: &[],
+            header_element: None,
+        },
+    )
+    .unwrap();
+
+    let report = osci::security::verify_message(&signed, &[]).unwrap();
+    assert!(report.all_valid(), "signed with custom header: {report:#?}");
+    let signed_info_refs: Vec<&str> = signed
+        .match_indices("<ds:Reference URI=\"")
+        .map(|(pos, _)| {
+            let start = pos + "<ds:Reference URI=\"".len();
+            &signed[start..start + 12]
+        })
+        .collect();
+    assert!(
+        signed_info_refs.iter().any(|r| r.starts_with("#MetaData")),
+        "custom header signed as a reference: {signed_info_refs:?}"
     );
 }

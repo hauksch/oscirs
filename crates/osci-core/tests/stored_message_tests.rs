@@ -194,7 +194,7 @@ fn store_load_roundtrips_all_types() {
             chunk_size: Some(10),
             total_chunk_numbers: Some(1),
             total_message_size: Some(1),
-            received_chunks: None,
+            received_chunks: Vec::new(),
         });
         m.containers.push(OutContentContainer {
             id: "ChunkContentContainer".into(),
@@ -270,7 +270,7 @@ fn chunk_information_from_fixtures() {
     let message = parse_message(&doc).unwrap();
     assert_eq!(message.kind, Some(MessageType::PartialFetchDelivery));
     let chunk = message.chunk_information.expect("chunk info");
-    assert_eq!(chunk.received_chunks, Some(-1));
+    assert_eq!(chunk.received_chunks, vec![-1]);
 }
 
 /// The DialogFinder correlates incoming accept/process deliveries by
@@ -388,7 +388,7 @@ fn partial_store_delivery_validates_against_xsd() {
             chunk_size: Some(10),
             total_chunk_numbers: Some(1),
             total_message_size: Some(1),
-            received_chunks: None,
+            received_chunks: Vec::new(),
         }),
         // addressee cipher certificate mandatory like StoreDelivery
         non_intermediary_certificates: vec![

@@ -85,10 +85,11 @@ pub fn sign_message_xml(xml: &str, params: &SignParams<'_>) -> Result<String, Si
             references.push(format!("#{id}"));
         }
     }
-    if let Some(entry_id) = find_entry_id(&doc)
-        && placeholder_canon.canonical_regions.contains_key(&entry_id)
-    {
-        references.push(entry_id);
+    // message entry + custom headers (document order), when present
+    for entry_id in all_entry_ids(&doc) {
+        if placeholder_canon.canonical_regions.contains_key(&entry_id) {
+            references.push(entry_id);
+        }
     }
     for (cid, _) in params.attachments {
         references.push(format!("cid:{cid}"));
@@ -205,11 +206,14 @@ fn build_signature_xml(
     Ok(out)
 }
 
-fn find_entry_id(doc: &osci_core::xml::Document) -> Option<String> {
-    // the message entry element: any direct header child with an Id that
-    // is not one of the fixed header ids
-
-    let header = osci_core::soap::find_header(doc)?;
+/// Every header child Id that is not one of the fixed header blocks:
+/// the message entry plus the custom (vendor extension) headers - all of
+/// them become transport-signature references (Java signs custom
+/// headers too).
+fn all_entry_ids(doc: &osci_core::xml::Document) -> Vec<String> {
+    let Some(header) = osci_core::soap::find_header(doc) else {
+        return Vec::new();
+    };
     let fixed = [
         "controlblock",
         "desiredlanguages",
@@ -219,14 +223,14 @@ fn find_entry_id(doc: &osci_core::xml::Document) -> Option<String> {
         "intermediarycertificates",
         "featuredescription",
     ];
-    for child in header.elements() {
-        if let Some(id) = child.id_attr()
-            && !fixed.contains(&id)
-        {
-            return Some(format!("#{id}"));
-        }
-    }
-    None
+    header
+        .elements()
+        .filter_map(|child| {
+            child
+                .id_attr()
+                .and_then(|id| (!fixed.contains(&id)).then(|| format!("#{id}")))
+        })
+        .collect()
 }
 
 fn inject_after_control_block(xml: &str, block: &str) -> Result<String, SignError> {

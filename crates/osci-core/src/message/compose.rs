@@ -383,11 +383,11 @@ fn check_chunk_shape(kind: MessageType, chunk: &ChunkInformation) -> Result<(), 
         _ => Ok(()),
     };
     check(chunk.chunk_size, model.chunk_size, "ChunkSize")?;
-    check(
-        chunk.received_chunks,
-        model.received_chunks,
-        "ReceivedChunks",
-    )?;
+    // ReceivedChunks is always written (-1 when the list is empty), so
+    // only the prohibition of actual chunk numbers can be violated
+    if !chunk.received_chunks.is_empty() && model.received_chunks == AttrUse::Prohibited {
+        return Err(schema("ChunkInformation does not allow ReceivedChunks"));
+    }
     check(
         chunk.total_chunk_numbers,
         model.total_chunk_numbers,
@@ -627,6 +627,16 @@ pub struct OutEncryptedAttachment {
     pub ciphertext: Vec<u8>,
 }
 
+/// One outbound vendor-extension (custom) header: the caller supplies
+/// the raw XML fragment (Java passes the JAXB-marshaled string); compose
+/// canonicalizes it, strips any XML declaration and splices
+/// ` Id="..."` into the root start tag (Java `addIdToCustomHeader`).
+#[derive(Debug, Clone)]
+pub struct OutCustomHeader {
+    pub id: String,
+    pub xml: String,
+}
+
 /// One feedback entry of a response.
 #[derive(Debug, Clone)]
 pub struct OutFeedback {
@@ -674,6 +684,11 @@ pub struct OutMessage {
     pub quality_reception: Option<bool>,
     pub non_intermediary_certificates: Vec<OutCertEntry>,
     pub feature_description: Option<FeatureDescription>,
+    /// Vendor extension headers (e.g. MessageMetaData), written after the
+    /// FeatureDescription, before the Body - the Java custom-header slot.
+    /// The fragment is canonicalized and spliced with its `Id` on
+    /// compose; it becomes a transport-signature reference.
+    pub custom_headers: Vec<OutCustomHeader>,
     /// Children XML of the message entry element (e.g. MessageId/Subject);
     /// the entry itself is placed by `kind`.
     pub entry_inner: Option<String>,
@@ -795,18 +810,34 @@ fn entry_inner_xml(msg: &OutMessage, kind: MessageType) -> String {
         }
     }
     if let Some(chunk) = &msg.chunk_information {
+        // Java ChunkInformation.writeXML order: ChunkNumber, ChunkSize,
+        // ReceivedChunks, TotalChunkNumbers, TotalMessageSize; the
+        // received list is space separated, -1 when empty - the
+        // attribute is omitted entirely when the kind prohibits it
         let mut attrs = format!(" ChunkNumber=\"{}\"", chunk.chunk_number);
         if let Some(v) = chunk.chunk_size {
             attrs.push_str(&format!(" ChunkSize=\"{v}\""));
+        }
+        let received_prohibited =
+            chunk_model(kind).is_some_and(|m| m.received_chunks == AttrUse::Prohibited);
+        if !received_prohibited {
+            let received = if chunk.received_chunks.is_empty() {
+                "-1".to_string()
+            } else {
+                chunk
+                    .received_chunks
+                    .iter()
+                    .map(|v| v.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            };
+            attrs.push_str(&format!(" ReceivedChunks=\"{received}\""));
         }
         if let Some(v) = chunk.total_chunk_numbers {
             attrs.push_str(&format!(" TotalChunkNumbers=\"{v}\""));
         }
         if let Some(v) = chunk.total_message_size {
             attrs.push_str(&format!(" TotalMessageSize=\"{v}\""));
-        }
-        if let Some(v) = chunk.received_chunks {
-            attrs.push_str(&format!(" ReceivedChunks=\"{v}\""));
         }
         inner.push_str(&format!(
             "<osci2017:ChunkInformation{attrs}></osci2017:ChunkInformation>"
@@ -1180,6 +1211,11 @@ pub fn compose_xml(
         w.raw(&fd_out).ok();
     }
 
+    // custom (vendor extension) headers, canonicalized with the spliced Id
+    for custom in &msg.custom_headers {
+        w.raw(canonical_custom_header(custom)?.as_bytes()).ok();
+    }
+
     w.raw(b"</soap:Header>").ok();
 
     // Body
@@ -1340,6 +1376,60 @@ pub fn write_encrypted_attachment_xml<W: std::io::Write>(
         b"\"><xenc:Transforms><ds:Transform Algorithm=\"http://www.w3.org/2000/09/xmldsig#base64\"></ds:Transform></xenc:Transforms></xenc:CipherReference></xenc:CipherData></xenc:EncryptedData>",
     )
     .ok();
+}
+
+/// Canonicalize a custom-header fragment and set ` Id="..."` on the root
+/// start tag (Java `makeOSCICustomHeader` + `addIdToCustomHeader`: the
+/// wire form is the canonical form of the fragment with the Id
+/// attribute, any XML declaration stripped). An existing root Id is
+/// replaced, not duplicated.
+fn canonical_custom_header(custom: &OutCustomHeader) -> Result<String, ComposeError> {
+    let doc = crate::xml::parser::parse(&custom.xml)
+        .map_err(|e| ComposeError::Missing(format!("custom header {}: {e}", custom.id)))?;
+    let canonical = crate::xml::c14n::canonicalize(&doc)
+        .map_err(|e| ComposeError::Missing(format!("custom header {}: {e}", custom.id)))?;
+    let body = String::from_utf8(canonical.bytes)
+        .map_err(|e| ComposeError::Missing(format!("custom header {}: {e}", custom.id)))?;
+    // the root start tag ends at the first '>' (attribute values are
+    // escaped, so no '>' can appear inside it)
+    let Some(pos) = body.find('>') else {
+        return Err(ComposeError::Missing(format!(
+            "custom header {}: no root element",
+            custom.id
+        )));
+    };
+    let mut start_tag = body[..pos].to_string();
+    let self_closing = start_tag.ends_with('/');
+    if self_closing {
+        start_tag.pop();
+    }
+    let id_attr = format!(" Id=\"{}\"", escape_attr_text(&custom.id));
+    match start_tag.find(" Id=\"") {
+        Some(existing) => {
+            // replace the existing Id attribute value
+            let value_start = existing + " Id=\"".len();
+            let value_end = start_tag[value_start..]
+                .find('"')
+                .map(|p| value_start + p)
+                .ok_or_else(|| {
+                    ComposeError::Missing(format!("custom header {}: bad Id", custom.id))
+                })?;
+            // replace through the closing quote
+            start_tag.replace_range(existing..value_end + 1, &id_attr);
+        }
+        None => start_tag.push_str(&id_attr),
+    }
+    if self_closing {
+        start_tag.push('/');
+    }
+    Ok(format!("{start_tag}>{}", &body[pos + 1..]))
+}
+
+/// Attribute-value escaping for the spliced Id (quotes and specials).
+fn escape_attr_text(value: &str) -> String {
+    let mut out = Vec::new();
+    crate::xml::writer::escape_attr(value, &mut out).ok();
+    String::from_utf8(out).unwrap_or_default()
 }
 
 /// Write one `xenc:EncryptedData` element (content or transport shape).

@@ -232,7 +232,9 @@ pub struct ChunkInformation {
     pub chunk_size: Option<i64>,
     pub total_chunk_numbers: Option<i64>,
     pub total_message_size: Option<i64>,
-    pub received_chunks: Option<i64>,
+    /// The received chunk numbers (Java `List<Integer>`); written
+    /// space-separated, `-1` when empty (the Java sentinel for "none").
+    pub received_chunks: Vec<i64>,
 }
 
 fn parse_chunk_information(element: &Element) -> Option<ChunkInformation> {
@@ -247,7 +249,14 @@ fn parse_chunk_information(element: &Element) -> Option<ChunkInformation> {
             chunk_size: c.attr("ChunkSize").and_then(|v| v.parse().ok()),
             total_chunk_numbers: c.attr("TotalChunkNumbers").and_then(|v| v.parse().ok()),
             total_message_size: c.attr("TotalMessageSize").and_then(|v| v.parse().ok()),
-            received_chunks: c.attr("ReceivedChunks").and_then(|v| v.parse().ok()),
+            received_chunks: c
+                .attr("ReceivedChunks")
+                .map(|v| {
+                    v.split_whitespace()
+                        .filter_map(|t| t.parse().ok())
+                        .collect()
+                })
+                .unwrap_or_default(),
         })
 }
 
@@ -444,31 +453,16 @@ fn parse_content_package(element: &Element) -> ContentPackage {
     package
 }
 
-fn element_uri_with(element: &Element, inherited: &BTreeMap<String, String>) -> Option<String> {
-    let mut bindings = inherited.clone();
-    for (k, v) in &element.attrs {
-        if let Some(p) = k.strip_prefix("xmlns:") {
-            bindings.insert(p.to_string(), v.clone());
-        } else if k == "xmlns" {
-            bindings.insert(String::new(), v.clone());
-        }
-    }
-    bindings.get(&element.prefix).cloned()
+fn element_uri_with(element: &Element, inherited: &crate::xml::NsBindings) -> Option<String> {
+    crate::xml::resolve_prefix(
+        &crate::xml::declared_bindings_plus(element, inherited),
+        &element.prefix,
+    )
+    .map(str::to_string)
 }
 
-fn bindings_of(
-    element: &Element,
-    inherited: &BTreeMap<String, String>,
-) -> BTreeMap<String, String> {
-    let mut bindings = inherited.clone();
-    for (k, v) in &element.attrs {
-        if let Some(p) = k.strip_prefix("xmlns:") {
-            bindings.insert(p.to_string(), v.clone());
-        } else if k == "xmlns" {
-            bindings.insert(String::new(), v.clone());
-        }
-    }
-    bindings
+fn bindings_of(element: &Element, inherited: &crate::xml::NsBindings) -> crate::xml::NsBindings {
+    crate::xml::declared_bindings_plus(element, inherited)
 }
 
 /// Parse a message from a document: locates the message entry among the

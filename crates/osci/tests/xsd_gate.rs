@@ -251,7 +251,7 @@ fn legal_message(kind: MessageType) -> OutMessage {
                 chunk_size: Some(16),
                 total_chunk_numbers: Some(1),
                 total_message_size: Some(16),
-                received_chunks: None,
+                received_chunks: Vec::new(),
             });
         }
         MessageType::PartialFetchDelivery => {
@@ -260,7 +260,7 @@ fn legal_message(kind: MessageType) -> OutMessage {
                 chunk_size: Some(16),
                 total_chunk_numbers: None,
                 total_message_size: None,
-                received_chunks: Some(-1),
+                received_chunks: Vec::new(),
             });
         }
         _ if kind.is_response() => {
@@ -311,7 +311,7 @@ fn legal_message(kind: MessageType) -> OutMessage {
                     Some(osci_core::message::ChunkInformation {
                         chunk_number: 1,
                         chunk_size: None,
-                        received_chunks: None,
+                        received_chunks: Vec::new(),
                         total_chunk_numbers: Some(3),
                         total_message_size: None,
                     })
@@ -320,7 +320,7 @@ fn legal_message(kind: MessageType) -> OutMessage {
                     Some(osci_core::message::ChunkInformation {
                         chunk_number: 1,
                         chunk_size: None,
-                        received_chunks: Some(3),
+                        received_chunks: vec![1, 2, 3],
                         total_chunk_numbers: None,
                         total_message_size: None,
                     })

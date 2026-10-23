@@ -208,31 +208,16 @@ impl HeaderEntry {
 
 /// Resolve the namespace URI of an element, including its own
 /// declarations.
-fn element_uri(element: &Element, inherited: &BTreeMap<String, String>) -> Option<String> {
-    let mut bindings = inherited.clone();
-    for (k, v) in &element.attrs {
-        if let Some(p) = k.strip_prefix("xmlns:") {
-            bindings.insert(p.to_string(), v.clone());
-        } else if k == "xmlns" {
-            bindings.insert(String::new(), v.clone());
-        }
-    }
-    bindings.get(&element.prefix).cloned()
+fn element_uri(element: &Element, inherited: &crate::xml::NsBindings) -> Option<String> {
+    crate::xml::resolve_prefix(
+        &crate::xml::declared_bindings_plus(element, inherited),
+        &element.prefix,
+    )
+    .map(str::to_string)
 }
 
-fn child_bindings(
-    element: &Element,
-    inherited: &BTreeMap<String, String>,
-) -> BTreeMap<String, String> {
-    let mut bindings = inherited.clone();
-    for (k, v) in &element.attrs {
-        if let Some(p) = k.strip_prefix("xmlns:") {
-            bindings.insert(p.to_string(), v.clone());
-        } else if k == "xmlns" {
-            bindings.insert(String::new(), v.clone());
-        }
-    }
-    bindings
+fn child_bindings(element: &Element, inherited: &crate::xml::NsBindings) -> crate::xml::NsBindings {
+    crate::xml::declared_bindings_plus(element, inherited)
 }
 
 /// Locate the `soap:Header` element of a document.

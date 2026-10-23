@@ -36,29 +36,16 @@ pub fn find_mmd_element(doc: &Document) -> Option<&Element> {
     if doc.root.local == "MessageMetaData" {
         return Some(&doc.root);
     }
-    use std::collections::BTreeMap;
     let header = crate::soap::find_header(doc)?;
-    fn uri_of(e: &Element, inherited: &BTreeMap<String, String>) -> Option<String> {
-        let mut bindings = inherited.clone();
-        for (k, v) in &e.attrs {
-            if let Some(p) = k.strip_prefix("xmlns:") {
-                bindings.insert(p.to_string(), v.clone());
-            } else if k == "xmlns" {
-                bindings.insert(String::new(), v.clone());
-            }
-        }
-        bindings.get(&e.prefix).cloned()
-    }
-    let mut bindings = BTreeMap::new();
-    for (k, v) in &doc.root.attrs {
-        if let Some(p) = k.strip_prefix("xmlns:") {
-            bindings.insert(p.to_string(), v.clone());
-        }
-    }
+    let root_bindings = crate::xml::declared_bindings(&doc.root);
     header
         .elements()
         .find(|&child| {
-            child.local == "MessageMetaData" && uri_of(child, &bindings).as_deref() == Some(MMD_NS)
+            child.local == "MessageMetaData"
+                && crate::xml::resolve_prefix(
+                    &crate::xml::declared_bindings_plus(child, &root_bindings),
+                    &child.prefix,
+                ) == Some(MMD_NS)
         })
         .map(|v| v as _)
 }

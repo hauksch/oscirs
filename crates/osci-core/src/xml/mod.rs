@@ -129,6 +129,16 @@ pub fn declared_bindings(element: &Element) -> NsBindings {
     map
 }
 
+/// The scope in which `element`'s children are evaluated: the inherited
+/// bindings overlaid with the element's own declarations.
+pub fn declared_bindings_plus(element: &Element, inherited: &NsBindings) -> NsBindings {
+    let mut map = inherited.clone();
+    for (k, v) in declared_bindings(element) {
+        map.insert(k, v);
+    }
+    map
+}
+
 /// Resolve a prefix against a binding map; `None` when unbound.
 pub fn resolve_prefix<'m>(bindings: &'m NsBindings, prefix: &str) -> Option<&'m str> {
     bindings.get(prefix).map(String::as_str)

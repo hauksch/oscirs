@@ -80,8 +80,13 @@ Every layer is gated against the pinned reference:
   (`scripts/xsd-validate.sh`, lxml/libxml2) validates composed traffic of
   every kind, signed and content-/transport-encrypted variants included)
 - [x] StoredMessage load/store, passive-recipient DialogFinder
-- [x] Chunking (partial store/fetch, both wire shapes)
-- [x] MessageMetaData extension header
+- [x] Chunking (partial store/fetch, both wire shapes; ReceivedChunks as
+  the Java list form - space separated, `-1` sentinel, omitted where the
+  schema prohibits it - and the Java attribute order)
+- [x] MessageMetaData extension header (parse **and compose**: custom
+  headers ride canonically with a spliced `Id` in the Java custom-header
+  slot, after the FeatureDescription, and become transport-signature
+  references)
 - [x] Transport + content signature composition (two-pass) and verification
 - [x] EncryptedData decryption pipelines
 - [x] Outbound content encryption (EncryptedData composition: AES-GCM/CBC,
