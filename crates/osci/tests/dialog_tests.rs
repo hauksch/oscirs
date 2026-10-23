@@ -390,6 +390,7 @@ fn synchronous_scenario() {
             text: Some("forwarded payload".into()),
             href: None,
         }],
+        encrypted_attachments: Vec::new(),
     });
     let response = dialog
         .send(&mut forward, &[], "MIME_boundary")
@@ -424,6 +425,7 @@ fn asynchronous_scenario() {
             text: Some("async payload".into()),
             href: None,
         }],
+        encrypted_attachments: Vec::new(),
     });
     let response = dialog.send(&mut store, &[], "MIME_boundary").unwrap();
     assert_eq!(response.kind, Some(MessageType::ResponseToStoreDelivery));
@@ -462,6 +464,7 @@ fn parallel_scenario() {
                     text: Some("parallel payload".into()),
                     href: None,
                 }],
+                encrypted_attachments: Vec::new(),
             });
         }
         let response = dialog.send(&mut out, &[], "MIME_boundary").unwrap();

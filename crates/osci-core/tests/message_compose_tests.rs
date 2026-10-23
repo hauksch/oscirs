@@ -89,6 +89,7 @@ fn store_delivery_out() -> OutMessage {
                 href: Some("cid:test.txt".into()),
             },
         ],
+        encrypted_attachments: Vec::new(),
     });
     msg.attachments.push(OutAttachment {
         content_id: "test.txt".into(),

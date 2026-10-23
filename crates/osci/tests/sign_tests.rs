@@ -91,6 +91,7 @@ fn unsigned_store_delivery() -> (OutMessage, Vec<(String, Vec<u8>)>) {
                 href: Some("cid:test.txt".into()),
             },
         ],
+        encrypted_attachments: Vec::new(),
     });
     out.attachments.push(OutAttachment {
         content_id: "test.txt".into(),

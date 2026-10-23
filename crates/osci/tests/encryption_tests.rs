@@ -59,6 +59,7 @@ fn inner_container() -> OutContentContainer {
             text: Some("encrypted payload data".into()),
             href: None,
         }],
+        encrypted_attachments: Vec::new(),
     }
 }
 
@@ -571,4 +572,183 @@ fn legacy_base64_text_dialect_accepted() {
         inner_signed,
         "inner recovered via legacy dialect"
     );
+}
+
+/// Encrypted MIME attachments (Java EncryptedDataOSCI dialect): one
+/// EncryptedData per attachment inside the encrypted container, key via
+/// MgmtData, ciphertext on the attachment's MIME part; round-trip
+/// byte-exact through compose -> load -> container decrypt ->
+/// decrypt_attachments.
+#[test]
+fn encrypted_attachments_roundtrip() {
+    const ATTACHMENT_ID: &str = "attachment1";
+    let payload: Vec<u8> = (0..=255u8).cycle().take(1000).collect();
+
+    let recipients = [EncRecipient {
+        cert: osci_crypto::Certificate::from_der(&cert_der("bob_cipher_4096.pem")).unwrap(),
+        cert_element_id: "addressee_cipher".into(),
+    }];
+    let config = EncryptConfig::default();
+
+    // referenced container content + the plaintext attachment
+    let contents = vec![OutContent {
+        id: "content1".into(),
+        text: None,
+        href: Some(format!("cid:{ATTACHMENT_ID}")),
+    }];
+    let attachments = vec![osci_core::message::compose::OutAttachment {
+        content_id: ATTACHMENT_ID.into(),
+        content_type: "application/octet-stream".into(),
+        base64_encoding: false,
+        data: payload.clone(),
+    }];
+
+    // 1. per-attachment encryption (pinned IV for determinism)
+    let enc_attachments = osci_core::message::compose::encrypt_attachments(
+        &contents,
+        &attachments,
+        &config.content_cipher,
+        Some(&[7u8; 12]),
+    )
+    .unwrap();
+    assert_eq!(enc_attachments.len(), 1);
+    assert_eq!(enc_attachments[0].id, format!("Attachment{ATTACHMENT_ID}"));
+    assert_eq!(enc_attachments[0].ref_id, ATTACHMENT_ID);
+    assert_eq!(enc_attachments[0].iv_len, 12);
+
+    // 2. the container (its plaintext will carry the attachment
+    //    EncryptedData elements)
+    let container = OutContentContainer {
+        id: "contentcontainer".into(),
+        contents,
+        encrypted_attachments: enc_attachments,
+    };
+    let enc = encrypt_container(
+        &container,
+        &recipients,
+        &config,
+        Some("encdata_0".into()),
+        None,
+    )
+    .unwrap();
+
+    // 3. compose with the ciphertext as the MIME part bytes
+    let encrypted_attachment = &container.encrypted_attachments[0];
+    let mut msg = OutMessage {
+        kind: Some(MessageType::StoreDelivery),
+        control_block: ControlBlock {
+            challenge: Some("Y2hhbGxlbmdl".into()),
+            sequence_number: Some(1),
+            ..Default::default()
+        },
+        non_intermediary_certificates: store_delivery_certs(),
+        containers: vec![OutContentContainer {
+            id: "contentcontainer".into(),
+            contents: vec![OutContent {
+                id: "content1".into(),
+                text: None,
+                href: Some(format!("cid:{ATTACHMENT_ID}")),
+            }],
+            encrypted_attachments: vec![encrypted_attachment.clone()],
+        }],
+        encrypted_data: vec![enc],
+        ..Default::default()
+    };
+    msg.attachments
+        .push(osci_core::message::compose::OutAttachment {
+            content_id: ATTACHMENT_ID.into(),
+            content_type: "application/octet-stream".into(),
+            base64_encoding: false,
+            data: encrypted_attachment.ciphertext.clone(),
+        });
+
+    let stream = osci_core::message::compose::compose_message(&msg, "MIME_boundary").unwrap();
+    let stored = osci_core::message::stored::StoredMessage::load(&stream).unwrap();
+    // the MIME part carries the raw ciphertext (binary dialect)
+    let part = stored
+        .attachments
+        .iter()
+        .find(|a| a.content_id == ATTACHMENT_ID)
+        .unwrap();
+    assert_eq!(part.data, encrypted_attachment.ciphertext);
+
+    // 4. decrypt the container, then the attachments inside it
+    let xml = String::from_utf8(stored.xml.clone()).unwrap();
+    let decrypter =
+        RsaDecrypter::from_pem_dump(corpus().join("certs/bob_cipher_4096.pem").to_str().unwrap())
+            .unwrap();
+    let decrypters: Vec<&dyn Decrypter> = vec![&decrypter];
+    let decrypted = decrypt_all_encrypted_data(&xml, &decrypters).unwrap();
+    assert_eq!(decrypted.len(), 1);
+    let container_xml = String::from_utf8(decrypted[0].plaintext.clone()).unwrap();
+    assert!(container_xml.contains(&format!("Attachment{ATTACHMENT_ID}")));
+
+    let opened = osci::security::decrypt_attachments(
+        &container_xml,
+        &[(
+            ATTACHMENT_ID.into(),
+            stored
+                .attachments
+                .iter()
+                .find(|a| a.content_id == ATTACHMENT_ID)
+                .unwrap()
+                .data
+                .clone(),
+        )],
+    )
+    .unwrap();
+    assert_eq!(opened.len(), 1);
+    assert_eq!(opened[0].ref_id, ATTACHMENT_ID);
+    assert_eq!(opened[0].plaintext, payload, "byte-exact round trip");
+}
+
+/// Legacy dialect: the attachment part kept as base64 TEXT (CTE 7bit)
+/// decrypts through the base64 candidate.
+#[test]
+fn encrypted_attachments_legacy_base64_part() {
+    const ATTACHMENT_ID: &str = "attachment1";
+    let payload = b"legacy attachment payload".to_vec();
+    let contents = vec![OutContent {
+        id: "content1".into(),
+        text: None,
+        href: Some(format!("cid:{ATTACHMENT_ID}")),
+    }];
+    let attachments = vec![osci_core::message::compose::OutAttachment {
+        content_id: ATTACHMENT_ID.into(),
+        content_type: "application/octet-stream".into(),
+        base64_encoding: true,
+        data: payload.clone(),
+    }];
+    let enc = osci_core::message::compose::encrypt_attachments(
+        &contents,
+        &attachments,
+        osci_crypto::algorithms::DEFAULT_SYMMETRIC_CIPHER,
+        None,
+    )
+    .unwrap();
+    assert_eq!(enc.len(), 1);
+
+    // base64-TEXT part like the legacy writer
+    let part_text = osci_core::helper::base64::encode(&enc[0].ciphertext).into_bytes();
+    let opened = osci::security::decrypt_attachments(
+        &format!(
+            "<osci:ContentContainer xmlns:osci=\"http://www.osci.de/2002/04/osci\" \
+             xmlns:xenc=\"http://www.w3.org/2001/04/xmlenc#\" \
+             xmlns:ds=\"http://www.w3.org/2000/09/xmldsig#\" Id=\"c\">\
+             <osci:Content Id=\"content1\" href=\"cid:{ATTACHMENT_ID}\"></osci:Content>\
+             {}</osci:ContentContainer>",
+            {
+                let mut buf = Vec::new();
+                osci_core::message::compose::write_encrypted_attachment_xml(
+                    &enc[0],
+                    &mut osci_core::xml::writer::XmlWriter::new(&mut buf),
+                );
+                String::from_utf8(buf).unwrap()
+            }
+        ),
+        &[(ATTACHMENT_ID.into(), part_text)],
+    )
+    .unwrap();
+    assert_eq!(opened.len(), 1);
+    assert_eq!(opened[0].plaintext, payload);
 }

@@ -401,6 +401,7 @@ fn legal_message(kind: MessageType) -> OutMessage {
                 text: Some("gate payload".into()),
                 href: None,
             }],
+            encrypted_attachments: Vec::new(),
         });
     }
     msg
@@ -554,6 +555,7 @@ fn encrypted_traffic_is_schema_valid() {
                 text: Some("gate payload".into()),
                 href: None,
             }],
+            encrypted_attachments: Vec::new(),
         },
         &recipients,
         &config,
@@ -563,6 +565,50 @@ fn encrypted_traffic_is_schema_valid() {
     .unwrap();
     msg.encrypted_data.push(encrypted);
     validate_composed("content-encrypted-StoreDelivery", &msg);
+
+    // content-encrypted WITH an encrypted attachment (Java
+    // EncryptedDataOSCI dialect: Attachment<id> EncryptedData inside the
+    // encrypted container, ciphertext on the MIME part)
+    const ATTACHMENT_ID: &str = "gate-attachment";
+    let attachment_contents = vec![OutContent {
+        id: "content1".into(),
+        text: None,
+        href: Some(format!("cid:{ATTACHMENT_ID}")),
+    }];
+    let enc_attachments = osci_core::message::compose::encrypt_attachments(
+        &attachment_contents,
+        &[osci_core::message::compose::OutAttachment {
+            content_id: ATTACHMENT_ID.into(),
+            content_type: "application/octet-stream".into(),
+            base64_encoding: false,
+            data: b"gate attachment payload".to_vec(),
+        }],
+        &config.content_cipher,
+        None,
+    )
+    .unwrap();
+    let encrypted_container = encrypt_container(
+        &OutContentContainer {
+            id: "contentcontainer".into(),
+            contents: attachment_contents,
+            encrypted_attachments: enc_attachments,
+        },
+        &recipients,
+        &config,
+        Some("encdata_0".into()),
+        None,
+    )
+    .unwrap();
+    let mut msg = legal_message(MessageType::StoreDelivery);
+    msg.attachments
+        .push(osci_core::message::compose::OutAttachment {
+            content_id: ATTACHMENT_ID.into(),
+            content_type: "application/octet-stream".into(),
+            base64_encoding: false,
+            data: vec![0u8; 64],
+        });
+    msg.encrypted_data.push(encrypted_container);
+    validate_composed("content-encrypted-attachment-StoreDelivery", &msg);
 
     // transport envelope: the signed stream wrapped into a
     // SOAPMessageEncrypted message

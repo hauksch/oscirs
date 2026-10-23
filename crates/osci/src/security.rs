@@ -966,6 +966,111 @@ impl StoredMessageLike<'_> {
     }
 }
 
+/// One decrypted attachment (Java `EncryptedDataOSCI.decryptAttachments`).
+#[derive(Debug, Clone)]
+pub struct DecryptedAttachment {
+    /// Content id of the attachment, without `cid:`.
+    pub ref_id: String,
+    pub plaintext: Vec<u8>,
+}
+
+/// Decrypt the encrypted attachments of a container (Java
+/// `decryptAttachments` dialect): each `xenc:EncryptedData` with a
+/// `cid:` CipherReference carries its session key as
+/// `ds:KeyInfo/ds:MgmtData` (protected by the container encryption), the
+/// ciphertext lives on the attachment's MIME part.
+///
+/// `attachments` are the transfer-decoded MIME parts by content id; as
+/// with the transport envelope, both the part bytes as-is (CTE binary /
+/// pre-decoded base64) and their base64 decode are tried as ciphertext
+/// candidates - the GCM tag / CBC padding arbitrates. Undecryptable
+/// entries are skipped; unknown references are ignored.
+pub fn decrypt_attachments(
+    container_xml: &str,
+    attachments: &[(String, Vec<u8>)],
+) -> Result<Vec<DecryptedAttachment>, SecurityError> {
+    let doc = parser::parse(container_xml).map_err(|e| SecurityError::Xml(e.to_string()))?;
+    let mut elements = Vec::new();
+    find_encrypted_data(&doc.root, &mut elements);
+
+    let mut out = Vec::new();
+    for element in elements {
+        // the Java dialect: Id="Attachment<refid>", CipherReference cid:
+        let Some(reference) = find_cipher_reference(element) else {
+            continue;
+        };
+        let Some(ref_id) = reference.strip_prefix("cid:") else {
+            continue;
+        };
+        let Some((_, part)) = attachments.iter().find(|(id, _)| id == ref_id) else {
+            continue;
+        };
+        let Some(mgmt) = find_mgmt_data(element) else {
+            continue;
+        };
+        let Ok(key) = base64::decode(mgmt.trim()) else {
+            continue;
+        };
+        // content cipher + optional IvLength hint
+        let mut methods = Vec::new();
+        find_methods(element, &mut methods);
+        let Some(cipher_uri) = methods.first().and_then(|m| m.attr("Algorithm")) else {
+            continue;
+        };
+        let Some(cipher) = SymCipher::from_uri(cipher_uri) else {
+            continue;
+        };
+        let iv_len = methods
+            .first()
+            .and_then(|m| {
+                m.elements()
+                    .find(|e| e.local == "IvLength")
+                    .map(|e| e.text())
+            })
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(16);
+        if key.len() != cipher.key_length() {
+            continue;
+        }
+        let _ = iv_len;
+        let mut candidates = vec![part.clone()];
+        if let Ok(decoded) = osci_core::helper::base64::decode(&String::from_utf8_lossy(part))
+            && decoded != *part
+        {
+            candidates.push(decoded);
+        }
+        for ciphertext in &candidates {
+            let mut plain = Vec::new();
+            let mut dr = match DecryptReader::new(&ciphertext[..], cipher, &key) {
+                Ok(dr) => dr,
+                Err(_) => continue,
+            };
+            if dr.read_to_end(&mut plain).is_err() || plain.is_empty() {
+                continue;
+            }
+            out.push(DecryptedAttachment {
+                ref_id: ref_id.to_string(),
+                plaintext: plain,
+            });
+            break;
+        }
+    }
+    Ok(out)
+}
+
+/// The text of the first `ds:MgmtData` child.
+fn find_mgmt_data(element: &Element) -> Option<String> {
+    for child in element.elements() {
+        if child.local == "MgmtData" {
+            return Some(child.text());
+        }
+        if let Some(found) = find_mgmt_data(child) {
+            return Some(found);
+        }
+    }
+    None
+}
+
 fn find_cipher_reference(element: &Element) -> Option<String> {
     for child in element.elements() {
         if child.local == "CipherReference" {

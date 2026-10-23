@@ -89,6 +89,11 @@ Every layer is gated against the pinned reference:
   encryption (SOAPMessageEncrypted envelope, **binary cipher part** per the
   Java 2.6.1 dialect; reader also accepts the legacy base64-text dialect)
   — see issues #1 and #2
+- [x] Encrypted MIME attachments (Java `EncryptedDataOSCI` dialect:
+  one `EncryptedData` per attachment inside the encrypted container,
+  session key as `MgmtData`, ciphertext on the attachment's MIME part;
+  `encrypt_attachments` on the compose side, `decrypt_attachments` on the
+  reader side, byte-exact round trip, schema-valid shape)
 - [x] Dialog state machine (challenge/response, conversation; sequence is
   echo-compared only), with response-side security: transport-encrypted
   responses are unwrapped (`with_response_decrypters`) and response

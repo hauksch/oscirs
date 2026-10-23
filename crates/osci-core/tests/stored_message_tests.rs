@@ -150,6 +150,7 @@ fn store_load_roundtrips_all_types() {
                         text: Some("payload".into()),
                         href: None,
                     }],
+                    encrypted_attachments: Vec::new(),
                 });
                 m
             },
@@ -176,6 +177,7 @@ fn store_load_roundtrips_all_types() {
                         text: Some("payload".into()),
                         href: None,
                     }],
+                    encrypted_attachments: Vec::new(),
                 });
                 m
             },
@@ -201,6 +203,7 @@ fn store_load_roundtrips_all_types() {
                 href: Some("cid:ChunkBlobStoreDelivery".into()),
                 text: None,
             }],
+            encrypted_attachments: Vec::new(),
         });
         m.attachments.push(OutAttachment {
             content_id: "ChunkBlobStoreDelivery".into(),
@@ -424,6 +427,7 @@ fn partial_store_delivery_validates_against_xsd() {
             href: Some("cid:ChunkBlobStoreDelivery".into()),
             text: None,
         }],
+        encrypted_attachments: Vec::new(),
     });
     out.attachments.push(OutAttachment {
         content_id: "ChunkBlobStoreDelivery".into(),

@@ -206,6 +206,7 @@ fn store_delivery(text: String, payload: Vec<u8>) -> OutMessage {
             text: Some(text),
             href: None,
         }],
+        encrypted_attachments: Vec::new(),
     });
     let _ = payload;
     out

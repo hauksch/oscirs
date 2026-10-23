@@ -252,6 +252,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             text: Some("one way message payload".into()),
             href: None,
         }],
+        encrypted_attachments: Vec::new(),
     });
     let response = dialog.send(&mut store, &[], "MIME_boundary")?;
     let feedback = first_feedback(&response).unwrap();

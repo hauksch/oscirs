@@ -11,6 +11,7 @@ use crate::soap::{
     ns_block_2017,
 };
 use crate::xml::writer::{XmlWriter, escape_text};
+use osci_crypto::algorithms::SymCipher;
 
 use super::{ChunkInformation, MessageType};
 
@@ -510,6 +511,10 @@ pub struct OutContent {
 pub struct OutContentContainer {
     pub id: String,
     pub contents: Vec<OutContent>,
+    /// Encrypted attachments referenced from this container's `cid:`
+    /// contents (Java `createEncryptedAttachments`); written after the
+    /// Content elements. Built with [`encrypt_attachments`].
+    pub encrypted_attachments: Vec<OutEncryptedAttachment>,
 }
 
 /// Key-transport parameters of one outbound encryption (how the session
@@ -552,6 +557,10 @@ impl KeyTransportParams {
 pub enum KeyInfoRef {
     CertElementId(String),
     InlineCertDer(Vec<u8>),
+    /// Raw base64 session key (the Java encrypted-attachment dialect:
+    /// the key rides as MgmtData, protected by the container encryption
+    /// around the element).
+    MgmtData(String),
 }
 
 /// One wrapped session key for a recipient.
@@ -596,6 +605,26 @@ pub struct OutAttachment {
     /// 03/2023).
     pub base64_encoding: bool,
     pub data: Vec<u8>,
+}
+
+/// One encrypted attachment (the Java `EncryptedDataOSCI` dialect): an
+/// `xenc:EncryptedData Id="Attachment<refid>" MimeType="text/xml"`
+/// written inside the encrypted container after the Content elements.
+/// The per-attachment session key rides as `ds:KeyInfo/ds:MgmtData`
+/// (protected by the container encryption); the ciphertext is the
+/// attachment's MIME part (`[IV][ciphertext]`).
+#[derive(Debug, Clone)]
+pub struct OutEncryptedAttachment {
+    /// `Attachment<refid>` (Java convention).
+    pub id: String,
+    /// Content id of the referenced attachment, without `cid:`.
+    pub ref_id: String,
+    pub content_cipher: String,
+    pub iv_len: usize,
+    /// base64 of the raw session key.
+    pub mgmt_data: String,
+    /// IV || ciphertext, exactly the bytes of the MIME part.
+    pub ciphertext: Vec<u8>,
 }
 
 /// One feedback entry of a response.
@@ -1271,7 +1300,46 @@ pub fn write_container_xml<W: std::io::Write>(
             }
         }
     }
+    // Java ContentContainer order: the Content elements first, then the
+    // encrypted-attachment EncryptedData elements
+    for enc in &container.encrypted_attachments {
+        write_encrypted_attachment_xml(enc, w);
+    }
     w.raw(b"</osci:ContentContainer>").ok();
+}
+
+/// Write one encrypted-attachment `xenc:EncryptedData` (Java
+/// `EncryptedDataOSCI` dialect: MgmtData key info, CipherReference to
+/// the attachment's MIME part with the base64 transform).
+pub fn write_encrypted_attachment_xml<W: std::io::Write>(
+    enc: &OutEncryptedAttachment,
+    w: &mut XmlWriter<W>,
+) {
+    w.raw(b"<xenc:EncryptedData Id=\"").ok();
+    w.raw(enc.id.as_bytes()).ok();
+    w.raw(b"\" MimeType=\"text/xml\">").ok();
+    w.raw(b"<xenc:EncryptionMethod Algorithm=\"").ok();
+    w.raw(enc.content_cipher.as_bytes()).ok();
+    w.raw(b"\"").ok();
+    if enc.iv_len != 16 {
+        w.raw(b"><osci128:IvLength xmlns:osci128=\"http://xoev.de/transport/osci12/8\" Value=\"")
+            .ok();
+        w.raw(enc.iv_len.to_string().as_bytes()).ok();
+        w.raw(b"\"></osci128:IvLength></xenc:EncryptionMethod>")
+            .ok();
+    } else {
+        w.raw(b"></xenc:EncryptionMethod>").ok();
+    }
+    w.raw(b"<ds:KeyInfo><ds:MgmtData>").ok();
+    w.raw(enc.mgmt_data.as_bytes()).ok();
+    w.raw(b"</ds:MgmtData></ds:KeyInfo>").ok();
+    w.raw(b"<xenc:CipherData><xenc:CipherReference URI=\"cid:")
+        .ok();
+    w.raw(enc.ref_id.as_bytes()).ok();
+    w.raw(
+        b"\"><xenc:Transforms><ds:Transform Algorithm=\"http://www.w3.org/2000/09/xmldsig#base64\"></ds:Transform></xenc:Transforms></xenc:CipherReference></xenc:CipherData></xenc:EncryptedData>",
+    )
+    .ok();
 }
 
 /// Write one `xenc:EncryptedData` element (content or transport shape).
@@ -1336,6 +1404,11 @@ pub fn write_encrypted_data_xml<W: std::io::Write>(enc: &OutEncryptedData, w: &m
                 w.raw(b"<ds:X509Data><ds:X509Certificate>").ok();
                 w.raw(base64::encode(der).as_bytes()).ok();
                 w.raw(b"</ds:X509Certificate></ds:X509Data>").ok();
+            }
+            KeyInfoRef::MgmtData(key) => {
+                w.raw(b"<ds:MgmtData>").ok();
+                w.raw(key.as_bytes()).ok();
+                w.raw(b"</ds:MgmtData>").ok();
             }
         }
         w.raw(b"</ds:KeyInfo><xenc:CipherData><xenc:CipherValue>")
@@ -1454,4 +1527,59 @@ pub fn encrypt_container(
         recipients,
         cipher_reference: None,
     })
+}
+
+/// Encrypt the attachments referenced from `contents` (`href="cid:X"`
+/// where X is an attachment content id) with one session key each
+/// (Java `createEncryptedAttachments` + `EncryptedDataOSCI`): the
+/// results go into [`OutContentContainer::encrypted_attachments`], and
+/// the caller replaces each attachment's MIME part data with the
+/// ciphertext. Referenced-but-unknown ids are skipped; each reference is
+/// encrypted once.
+///
+/// `iv` pins the IV of the FIRST attachment for deterministic tests;
+/// pass `None` in production.
+pub fn encrypt_attachments(
+    contents: &[OutContent],
+    attachments: &[OutAttachment],
+    content_cipher: &str,
+    iv: Option<&[u8]>,
+) -> Result<Vec<OutEncryptedAttachment>, ComposeError> {
+    let cipher = SymCipher::from_uri(content_cipher)
+        .ok_or_else(|| ComposeError::Missing(content_cipher.to_string()))?;
+    let mut out = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for content in contents {
+        let Some(href) = &content.href else {
+            continue;
+        };
+        let Some(ref_id) = href.strip_prefix("cid:") else {
+            continue;
+        };
+        if !seen.insert(ref_id.to_string()) {
+            continue;
+        }
+        let Some(attachment) = attachments.iter().find(|a| a.content_id == ref_id) else {
+            continue;
+        };
+        let key = osci_crypto::calc::create_sym_key(content_cipher)
+            .map_err(|e| ComposeError::Missing(e.to_string()))?;
+        let iv_bytes = match iv {
+            Some(iv) if out.is_empty() => iv.to_vec(),
+            _ => osci_crypto::calc::create_iv(content_cipher, None)
+                .map_err(|e| ComposeError::Missing(e.to_string()))?,
+        };
+        let ciphertext =
+            osci_crypto::symcipher::oneshot::encrypt(cipher, &key, &iv_bytes, &attachment.data)
+                .map_err(|e| ComposeError::Missing(e.to_string()))?;
+        out.push(OutEncryptedAttachment {
+            id: format!("Attachment{ref_id}"),
+            ref_id: ref_id.to_string(),
+            content_cipher: content_cipher.to_string(),
+            iv_len: iv_bytes.len(),
+            mgmt_data: base64::encode(&key),
+            ciphertext,
+        });
+    }
+    Ok(out)
 }
