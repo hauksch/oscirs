@@ -12,7 +12,8 @@ use std::sync::{Arc, Mutex};
 use chrono::TimeZone as _;
 use osci::dialog::{Dialog, DialogError, first_feedback};
 use osci_core::message::compose::{
-    OutCertEntry, OutContent, OutContentContainer, OutFeedback, OutMessage, compose_message,
+    OutAttachment, OutCertEntry, OutContent, OutContentContainer, OutFeedback, OutMessage,
+    compose_message,
 };
 use osci_core::message::stored::StoredMessage;
 use osci_core::message::{MessageType, OsciMessage};
@@ -112,6 +113,7 @@ impl MockIntermediary for ScriptedIntermediary {
             MessageType::ForwardDelivery => MessageType::ResponseToForwardDelivery,
             MessageType::MediateDelivery => MessageType::ResponseToMediateDelivery,
             MessageType::FetchDelivery => MessageType::ResponseToFetchDelivery,
+            MessageType::PartialStoreDelivery => MessageType::ResponseToPartialStoreDelivery,
             other => return Err(TransportError::new(format!("unhandled type {other:?}"))),
         };
 
@@ -145,15 +147,11 @@ impl MockIntermediary for ScriptedIntermediary {
             response_block.sequence_number = None;
         }
 
-        let feedback_code = if kind == MessageType::StoreDelivery {
-            "0801"
-        } else {
-            "0800"
-        };
-        let feedback_text = if kind == MessageType::StoreDelivery {
-            "Auftrag ausgeführt, Dialog weiterhin geöffnet"
-        } else {
-            "Auftrag ausgeführt"
+        let (feedback_code, feedback_text) = match kind {
+            MessageType::StoreDelivery | MessageType::PartialStoreDelivery => {
+                ("0801", "Auftrag ausgeführt, Dialog weiterhin geöffnet")
+            }
+            _ => ("0800", "Auftrag ausgeführt"),
         };
 
         // response entry children per type (Feedback is written from
@@ -189,6 +187,25 @@ impl MockIntermediary for ScriptedIntermediary {
                 code: feedback_code.into(),
                 text: feedback_text.into(),
             }],
+            // the partial-store response entry requires ChunkInformation
+            // (with ReceivedChunks) and the soap schema the
+            // FeatureDescription header
+            chunk_information: (response_kind == MessageType::ResponseToPartialStoreDelivery)
+                .then(|| osci_core::message::ChunkInformation {
+                    chunk_number: 1,
+                    chunk_size: None,
+                    received_chunks: vec![1, 2],
+                    total_chunk_numbers: None,
+                    total_message_size: None,
+                }),
+            feature_description: (response_kind == MessageType::ResponseToPartialStoreDelivery)
+                .then(|| osci_core::soap::FeatureDescription {
+                    chunk_message_timeout: Some(60),
+                    max_chunk_size: Some(1024),
+                    max_message_size: Some(4096),
+                    min_chunk_size: Some(128),
+                    features: vec![("DisableBase64".into(), "1.0.0".into())],
+                }),
             entry_inner: match response_kind {
                 MessageType::ResponseToGetMessageId => {
                     Some("<osci:MessageId>aW50ZXJtZWRpYXJ5LWlk</osci:MessageId>".into())
@@ -504,4 +521,91 @@ fn signed_round_trips_verify_on_the_wire() {
     let report = osci::security::verify_message(&xml, &[]).unwrap();
     assert!(report.all_valid(), "wire signature valid: {report:#?}");
     assert_eq!(seen.lock().unwrap().len(), 2);
+}
+
+/// EFFI chunked send (issue #4): the full signed delivery is composed
+/// once via `compose_signed_stream` (dialog state advances exactly once),
+/// split into chunk blobs, and each blob ships as a PartialStoreDelivery
+/// with the blob as its single MIME attachment - the reassembly feedback
+/// (0801) comes with the intermediary's chunk echo.
+#[test]
+fn chunked_send_round() {
+    let (transport, seen, _mailbox) = transport();
+    let mut dialog = Dialog::new(Box::new(transport))
+        .with_signer(Box::new(signer()), "originator_signature".into());
+    init_dialog(&mut dialog);
+
+    // the full signed delivery (signed via the dialog's signer; not sent)
+    let mut full = unsigned_out(MessageType::StoreDelivery, None);
+    full.entry_inner =
+        Some("<osci:MessageId>bXNn</osci:MessageId><osci:Subject>S</osci:Subject>".into());
+    full.containers.push(OutContentContainer {
+        id: "contentcontainer".into(),
+        contents: vec![OutContent {
+            id: "content1".into(),
+            text: Some("the chunked payload of the full delivery".into()),
+            href: None,
+        }],
+        encrypted_attachments: Vec::new(),
+    });
+    // the full stream carries its own MIME framing - the chunk messages
+    // must use a different boundary so the blob bytes cannot collide
+    // with the outer multipart markers
+    let stream = dialog
+        .compose_signed_stream(&mut full, &[], "FULL_boundary")
+        .expect("full delivery composed and signed");
+
+    // split the serialized delivery into two chunk blobs
+    let half = stream.len() / 2;
+    let blobs = [&stream[..half], &stream[half..]];
+    let total = stream.len() as i64;
+
+    for (i, blob) in blobs.iter().enumerate() {
+        let mut out = unsigned_out(MessageType::PartialStoreDelivery, None);
+        out.entry_inner =
+            Some("<osci:MessageId>bXNn</osci:MessageId><osci:Subject>S</osci:Subject>".into());
+        out.chunk_information = Some(osci_core::message::ChunkInformation {
+            chunk_number: (i + 1) as i64,
+            chunk_size: Some(blob.len() as i64),
+            total_chunk_numbers: Some(blobs.len() as i64),
+            total_message_size: Some(total),
+            received_chunks: Vec::new(),
+        });
+        out.feature_description = Some(osci_core::soap::FeatureDescription {
+            chunk_message_timeout: Some(60),
+            max_chunk_size: Some(1024),
+            max_message_size: Some(4096),
+            min_chunk_size: Some(128),
+            features: vec![("DisableBase64".into(), "1.0.0".into())],
+        });
+        out.containers.push(OutContentContainer {
+            id: "ChunkContentContainer".into(),
+            contents: vec![OutContent {
+                id: "ChunkContent".into(),
+                href: Some(format!("cid:ChunkBlob{i}")),
+                text: None,
+            }],
+            encrypted_attachments: Vec::new(),
+        });
+        out.attachments.push(OutAttachment {
+            content_id: format!("ChunkBlob{i}"),
+            content_type: "application/octet-stream".into(),
+            base64_encoding: false,
+            data: blob.to_vec(),
+        });
+        let response = dialog.send(&mut out, &[], "MIME_boundary").unwrap();
+        assert_eq!(
+            response.kind,
+            Some(MessageType::ResponseToPartialStoreDelivery),
+            "chunk {i}"
+        );
+        let feedback = first_feedback(&response).unwrap();
+        assert!(feedback.code.starts_with('0'), "chunk {i}: {feedback:?}");
+        assert_eq!(
+            response.chunk_information.as_ref().unwrap().received_chunks,
+            vec![1, 2],
+            "chunk {i}: reassembly echo"
+        );
+    }
+    assert_eq!(seen.lock().unwrap().len(), 3, "init + two chunks");
 }

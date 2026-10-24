@@ -274,6 +274,43 @@ impl Dialog {
         attachments: &[(String, Vec<u8>)],
         boundary: &str,
     ) -> Result<OsciMessage, DialogError> {
+        let request_stream = self.compose_signed_stream(out, attachments, boundary)?;
+
+        let response_bytes = self
+            .transport
+            .send(&request_stream)
+            .map_err(|e| DialogError::Transport(e.to_string()))?;
+
+        let stored =
+            StoredMessage::load(&response_bytes).map_err(|e| DialogError::Parse(e.to_string()))?;
+        // a transport-encrypted response must be unwrapped before the
+        // control block is reachable
+        let stored = match self.transport_envelope(&stored)? {
+            Some(inner) => {
+                StoredMessage::load(&inner).map_err(|e| DialogError::Parse(e.to_string()))?
+            }
+            None => stored,
+        };
+        self.check_response(&stored)
+    }
+
+    /// Everything [`Dialog::send`] does up to (excluding) the
+    /// transport send: prepare the control block, compose, sign
+    /// (when a signer is set) and apply transport-level encryption.
+    /// The dialog state advances exactly once, like a normal send.
+    ///
+    /// This is the seam for EFFI message chunking (issue #4): the
+    /// returned stream of the full delivery is what gets split into
+    /// chunk blobs - build one [`OutMessage`] per chunk (a
+    /// PartialStoreDelivery carrying the blob as its single attachment)
+    /// and ship each through [`Dialog::send`]. Do not `send` the same
+    /// `OutMessage` afterwards; its control block was already adopted.
+    pub fn compose_signed_stream(
+        &mut self,
+        out: &mut OutMessage,
+        attachments: &[(String, Vec<u8>)],
+        boundary: &str,
+    ) -> Result<Vec<u8>, DialogError> {
         let kind = out
             .kind
             .ok_or_else(|| DialogError::Composition("kind missing".into()))?;
@@ -313,33 +350,16 @@ impl Dialog {
             .map_err(|e| DialogError::Composition(e.to_string()))?;
 
         // transport-level encryption wraps the signed stream last
-        let request_stream = match &self.transport_encryption {
+        match &self.transport_encryption {
             Some(te) => crate::security::encrypt_message_for(
                 &request_stream,
                 &te.recipient_cert,
                 &te.config,
                 boundary,
             )
-            .map_err(|e| DialogError::Composition(e.to_string()))?,
-            None => request_stream,
-        };
-
-        let response_bytes = self
-            .transport
-            .send(&request_stream)
-            .map_err(|e| DialogError::Transport(e.to_string()))?;
-
-        let stored =
-            StoredMessage::load(&response_bytes).map_err(|e| DialogError::Parse(e.to_string()))?;
-        // a transport-encrypted response must be unwrapped before the
-        // control block is reachable
-        let stored = match self.transport_envelope(&stored)? {
-            Some(inner) => {
-                StoredMessage::load(&inner).map_err(|e| DialogError::Parse(e.to_string()))?
-            }
-            None => stored,
-        };
-        self.check_response(&stored)
+            .map_err(|e| DialogError::Composition(e.to_string())),
+            None => Ok(request_stream),
+        }
     }
 
     /// When the stored message is a SOAPMessageEncrypted transport

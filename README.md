@@ -82,7 +82,11 @@ Every layer is gated against the pinned reference:
 - [x] StoredMessage load/store, passive-recipient DialogFinder
 - [x] Chunking (partial store/fetch, both wire shapes; ReceivedChunks as
   the Java list form - space separated, `-1` sentinel, omitted where the
-  schema prohibits it - and the Java attribute order)
+  schema prohibits it - and the Java attribute order). Send side:
+  `Dialog::compose_signed_stream` composes+signs the full delivery
+  without transmitting (issue #4) - the caller splits the stream and
+  ships each blob as a PartialStoreDelivery attachment; rule-less fetch
+  deliveries (the "ALL" selection) omit the SelectionRule entirely
 - [x] MessageMetaData extension header (parse **and compose**: custom
   headers ride canonically with a spliced `Id` in the Java custom-header
   slot, after the FeatureDescription, and become transport-signature

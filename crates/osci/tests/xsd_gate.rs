@@ -649,3 +649,12 @@ fn encrypted_traffic_is_schema_valid() {
         Err(e) => panic!("transport-encrypted: XSD validation failed: {e}"),
     }
 }
+
+/// Issue #4 gap 1: the rule-less ("ALL") fetch delivery - no
+/// SelectionRule element at all - is schema-valid.
+#[test]
+fn rule_less_fetch_delivery_is_schema_valid() {
+    let mut msg = legal_message(MessageType::FetchDelivery);
+    msg.selection_rule = None;
+    validate_composed("rule-less-FetchDelivery", &msg);
+}

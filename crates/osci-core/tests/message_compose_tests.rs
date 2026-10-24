@@ -366,3 +366,83 @@ fn binary_attachment_survives_mime_framing() {
     assert!(xml_seen);
     assert_eq!(att_data, out.attachments[0].data);
 }
+
+/// Issue #4 gap 1: a rule-less fetch delivery (the "ALL" selection)
+/// composes WITHOUT a SelectionRule element - an empty MessageId would
+/// be parsed as a selection and rejected with 9803 by the intermediary.
+#[test]
+fn rule_less_fetch_delivery_omits_selection_rule() {
+    let out = OutMessage {
+        kind: Some(MessageType::FetchDelivery),
+        control_block: ControlBlock {
+            sequence_number: Some(1),
+            conversation_id: Some("42".into()),
+            response: Some("cmVzcG9uc2U=".into()),
+            challenge: Some("Y2hhbGxlbmdl".into()),
+        },
+        desired_languages: Some("de".into()),
+        non_intermediary_certificates: vec![OutCertEntry {
+            role: CertRole::Originator,
+            use_: CertUse::Signature,
+            id: "originator_signature_test".into(),
+            der: first_cert_der("alice_signature_4096.pem"),
+        }],
+        // no selection rule: fetch everything
+        ..Default::default()
+    };
+    let stream = compose_message(&out, "MIME_boundary").unwrap();
+    let mut mime = MimeParser::new(&stream[..]).unwrap();
+    let mut part = mime.next_part().unwrap().expect("xml part");
+    let mut xml = Vec::new();
+    part.read_to_end(&mut xml).unwrap();
+    let xml = String::from_utf8(xml).unwrap();
+
+    assert!(
+        !xml.contains("SelectionRule"),
+        "rule-less fetch must not carry a SelectionRule: {xml}"
+    );
+    // the entry element itself is still there and empty
+    assert!(xml.contains("<osci:fetchDelivery"), "entry present");
+    assert!(xml.contains("</osci:fetchDelivery>"), "entry closed");
+
+    // re-parses cleanly (no selection)
+    let doc = parser::parse(&xml).unwrap();
+    let parsed = parse_message(&doc).unwrap();
+    assert_eq!(parsed.kind, Some(MessageType::FetchDelivery));
+    assert!(parsed.request.as_ref().unwrap().message_id.is_none());
+}
+
+/// Rule-carrying composition stays byte-compatible (issue #4 gap 1).
+#[test]
+fn rule_carrying_fetch_delivery_keeps_selection_rule() {
+    let build = |rule: Option<&str>| OutMessage {
+        kind: Some(MessageType::FetchDelivery),
+        control_block: ControlBlock {
+            sequence_number: Some(1),
+            conversation_id: Some("42".into()),
+            response: Some("cmVzcG9uc2U=".into()),
+            challenge: Some("Y2hhbGxlbmdl".into()),
+        },
+        desired_languages: Some("de".into()),
+        non_intermediary_certificates: vec![OutCertEntry {
+            role: CertRole::Originator,
+            use_: CertUse::Signature,
+            id: "originator_signature_test".into(),
+            der: first_cert_der("alice_signature_4096.pem"),
+        }],
+        selection_rule: rule.map(str::to_string),
+        ..Default::default()
+    };
+    let stream = compose_message(&build(Some("bXNn")), "MIME_boundary").unwrap();
+    let mut mime = MimeParser::new(&stream[..]).unwrap();
+    let mut part = mime.next_part().unwrap().expect("xml part");
+    let mut xml = Vec::new();
+    part.read_to_end(&mut xml).unwrap();
+    let xml = String::from_utf8(xml).unwrap();
+    assert!(
+        xml.contains(
+            "<osci:SelectionRule><osci:MessageId>bXNn</osci:MessageId></osci:SelectionRule>"
+        ),
+        "rule form unchanged: {xml}"
+    );
+}

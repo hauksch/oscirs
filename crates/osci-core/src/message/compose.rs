@@ -792,14 +792,18 @@ fn entry_inner_xml(msg: &OutMessage, kind: MessageType) -> String {
         MessageType::FetchDelivery | MessageType::FetchProcessCard => {
             // the selection rule is element-only (order.xsd
             // SelectionRuleFetchType: a choice of MessageId or date
-            // elements); the composed rule nests the message id
-            let rule = msg.selection_rule.clone().unwrap_or_default();
-            let mut escaped = Vec::new();
-            escape_text(&rule, &mut escaped).ok();
-            inner.push_str(&format!(
-                "<osci:SelectionRule><osci:MessageId>{}</osci:MessageId></osci:SelectionRule>",
-                String::from_utf8_lossy(&escaped)
-            ));
+            // elements); the composed rule nests the message id.
+            // A rule-less fetch (the "ALL" selection) must omit the
+            // element entirely - the intermediary parses an empty
+            // MessageId as a selection and rejects with 9803 (issue #4).
+            if let Some(rule) = msg.selection_rule.as_deref().filter(|r| !r.is_empty()) {
+                let mut escaped = Vec::new();
+                escape_text(rule, &mut escaped).ok();
+                inner.push_str(&format!(
+                    "<osci:SelectionRule><osci:MessageId>{}</osci:MessageId></osci:SelectionRule>",
+                    String::from_utf8_lossy(&escaped)
+                ));
+            }
             // fetchDelivery's entry contains ONLY the SelectionRule
             // (fetchDeliveryType extends the empty header block template)
             let _ = kind;
