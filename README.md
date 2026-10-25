@@ -107,8 +107,10 @@ Every layer is gated against the pinned reference:
   echo-compared only), with response-side security: transport-encrypted
   responses are unwrapped (`with_response_decrypters`) and response
   signatures verified per `SignaturePolicy`
-  (`Ignore` / `VerifyIfPresent` default / `Require`; the report is
-  available via `Dialog::last_response_report`)
+  (`Ignore` / `VerifyIfPresent` default / `Require`; `Ignore` records the
+  verdict in `Dialog::last_response_report` without enforcing it - the
+  author-signature result is per-message data, exchange errors come only
+  from the verifying policies)
 - [x] Loopback + HTTP transports
 - [x] Sample program
 - [ ] RSA-PSS P-384 ECDSA signing path (P-256 verified; P-384 sign trait ready)

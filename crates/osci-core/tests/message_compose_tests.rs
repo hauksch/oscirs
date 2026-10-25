@@ -446,3 +446,109 @@ fn rule_carrying_fetch_delivery_keeps_selection_rule() {
         "rule form unchanged: {xml}"
     );
 }
+
+/// Issue #6 part 2: PartialStoreDelivery compose fidelity for the live
+/// intermediary - the creation QualityOfTimestamp header is always
+/// present (plain when unset), the entry rides under the osci2017
+/// namespace with the chunk attributes, and the body is one
+/// ContentContainer whose Content references the chunk blob.
+#[test]
+fn partial_store_delivery_live_shape() {
+    let out = OutMessage {
+        kind: Some(MessageType::PartialStoreDelivery),
+        control_block: ControlBlock {
+            sequence_number: Some(1),
+            conversation_id: Some("42".into()),
+            response: Some("cmVzcG9uc2U=".into()),
+            challenge: Some("Y2hhbGxlbmdl".into()),
+        },
+        desired_languages: Some("de".into()),
+        non_intermediary_certificates: vec![
+            OutCertEntry {
+                role: CertRole::Originator,
+                use_: CertUse::Cipher,
+                id: "originator_cipher_test".into(),
+                der: first_cert_der("alice_cipher_4096.pem"),
+            },
+            OutCertEntry {
+                role: CertRole::Addressee,
+                use_: CertUse::Cipher,
+                id: "addressee_cipher_test".into(),
+                der: first_cert_der("bob_cipher_4096.pem"),
+            },
+        ],
+        // quality flags unset: the creation header must STILL be emitted
+        // (plain), like the reference composer's unconditional
+        // qualityOfTimestampTypeCreation
+        entry_inner: Some("<osci:MessageId>bXNn</osci:MessageId>".into()),
+        chunk_information: Some(osci_core::message::ChunkInformation {
+            chunk_number: 1,
+            chunk_size: Some(64),
+            total_chunk_numbers: Some(2),
+            total_message_size: Some(128),
+            received_chunks: Vec::new(),
+        }),
+        feature_description: Some(osci_core::soap::FeatureDescription {
+            chunk_message_timeout: Some(60),
+            max_chunk_size: Some(1024),
+            max_message_size: Some(4096),
+            min_chunk_size: Some(128),
+            features: vec![("DisableBase64".into(), "1.0.0".into())],
+        }),
+        containers: vec![OutContentContainer {
+            id: "ChunkContentContainer".into(),
+            contents: vec![OutContent {
+                id: "ChunkContent".into(),
+                text: None,
+                href: Some("cid:chunk-1".into()),
+            }],
+            encrypted_attachments: Vec::new(),
+        }],
+        ..Default::default()
+    };
+    let stream = compose_message(&out, "MIME_boundary").unwrap();
+    let mut mime = MimeParser::new(&stream[..]).unwrap();
+    let mut part = mime.next_part().unwrap().expect("xml part");
+    let mut xml = Vec::new();
+    part.read_to_end(&mut xml).unwrap();
+    let xml = String::from_utf8(xml).unwrap();
+
+    // creation QoT present even with the flag unset, no reception QoT
+    assert!(
+        xml.contains("Id=\"qualityoftimestamp_creation\" Quality=\"plain\" Service=\"creation\""),
+        "creation QoT header (plain) required: {xml}"
+    );
+    assert!(!xml.contains("qualityoftimestamp_reception"));
+
+    // the entry rides under the osci2017 namespace
+    assert!(
+        xml.contains("<osci2017:partialStoreDelivery"),
+        "entry namespace osci2017: {xml}"
+    );
+    assert!(
+        xml.contains("xmlns:osci2017=\"http://xoev.de/transport/osci12/7\""),
+        "osci2017 binding present"
+    );
+
+    // chunk attributes on the entry's ChunkInformation
+    assert!(xml.contains("ChunkNumber=\"1\""));
+    assert!(xml.contains("ChunkSize=\"64\""));
+    assert!(xml.contains("TotalChunkNumbers=\"2\""));
+    assert!(xml.contains("TotalMessageSize=\"128\""));
+    assert!(
+        !xml.contains("ReceivedChunks="),
+        "prohibited on the store side"
+    );
+
+    // body: ContentPackage with one container whose Content references
+    // the chunk blob
+    let body = &xml[xml.find("<soap:Body").unwrap()..];
+    assert!(body.contains("<osci:ContentPackage>"));
+    assert!(body.contains("<osci:ContentContainer"));
+    assert!(body.contains("href=\"cid:chunk-1\""));
+    assert_eq!(
+        body.matches("<osci:ContentContainer").count(),
+        1,
+        "exactly one container"
+    );
+}

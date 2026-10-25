@@ -541,3 +541,28 @@ fn legacy_fixture_reports_outdated_algorithm() {
         assert!(!sig.strong_and_valid(), "rsa-sha1 is not strong");
     }
 }
+
+/// Issue #6 part 1: `Ignore` stores the report without enforcing it - a
+/// response whose non-transport signature is invalid (the storage
+/// round-trip invalidates the originator's cid: attachment digest)
+/// parses normally, the verdict stays available per message.
+#[test]
+fn ignore_policy_reports_but_does_not_enforce() {
+    let intermediary = SigningIntermediary::new();
+    *intermediary.corrupt_once.lock().unwrap() = true;
+    let mut dialog = Dialog::new(Box::new(LoopbackTransport::new(Box::new(intermediary))));
+    dialog
+        .send(&mut init_request(), &[], "MIME_boundary")
+        .unwrap();
+    dialog.set_signature_policy(SignaturePolicy::Ignore);
+
+    let mut out = fetch_request();
+    let response = dialog.send(&mut out, &[], "MIME_boundary").unwrap();
+    assert_eq!(response.kind, Some(MessageType::ResponseToFetchDelivery));
+    assert_eq!(first_feedback(&response).unwrap().code, "0800");
+
+    // the report is available and records the invalid signature
+    let report = dialog.last_response_report().expect("report stored");
+    assert!(!report.all_valid(), "the corrupted signature is reported");
+    assert!(!report.signatures[0].signature_valid);
+}

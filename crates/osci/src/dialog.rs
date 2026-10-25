@@ -438,6 +438,12 @@ impl Dialog {
             }
         };
         match (self.signature_policy, verified) {
+            // Ignore: the verdict is per-message data, never an exchange
+            // error - the report (valid or not) stays available for the
+            // downstream author-signature handling
+            (SignaturePolicy::Ignore, Some(report)) => {
+                self.last_response_report = Some(report);
+            }
             (_, Some(report)) => {
                 if !report.all_valid() {
                     return Err(DialogError::Verification(format!(
