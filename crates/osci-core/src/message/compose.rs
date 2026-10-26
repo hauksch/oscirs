@@ -1060,6 +1060,21 @@ pub fn compose_xml(
             "{kind:?} requires a ContentPackage in the Body"
         )));
     }
+    // the reference PartialStoreDelivery.compose throws unless the body
+    // carries exactly one ContentContainer and no EncryptedData
+    if kind == MessageType::PartialStoreDelivery {
+        if msg.containers.len() != 1 {
+            return Err(ComposeError::Schema(format!(
+                "{kind:?} requires exactly one ContentContainer, got {}",
+                msg.containers.len()
+            )));
+        }
+        if !msg.encrypted_data.is_empty() {
+            return Err(ComposeError::Schema(
+                "{kind:?} does not allow EncryptedData".into(),
+            ));
+        }
+    }
     // Feedback exists only in responseTo* entries
     if !msg.feedback.is_empty() && !kind.is_response() {
         return Err(ComposeError::Schema(format!(
@@ -1089,8 +1104,20 @@ pub fn compose_xml(
 
     // DesiredLanguages - request schemas only (the soapResponseTo*.xsd
     // header sequences have no DesiredLanguages slot); LanguagesList is
-    // an xsd:list of xs:language tokens (space separated)
-    if let Some(languages) = &msg.desired_languages {
+    // an xsd:list of xs:language tokens (space separated). Mandatory on
+    // requests (DesiredLanguages[1..1], and the reference client always
+    // writes it - a partial delivery without one was rejected 9300
+    // live, issue #8).
+    let languages = match &msg.desired_languages {
+        Some(languages) => Some(languages),
+        None if kind.is_response() => None,
+        None => {
+            return Err(ComposeError::Schema(format!(
+                "{kind:?} requires DesiredLanguages"
+            )));
+        }
+    };
+    if let Some(languages) = languages {
         if kind.is_response() {
             return Err(ComposeError::Schema(format!(
                 "{kind:?} does not allow DesiredLanguages"

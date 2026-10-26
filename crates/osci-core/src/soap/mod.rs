@@ -147,7 +147,9 @@ pub struct FeatureDescription {
 }
 
 impl FeatureDescription {
-    pub const REF_ID: &'static str = "featuredescription";
+    /// Java HeaderEntry default Id (class name minus last char,
+    /// lowercased)
+    pub const REF_ID: &'static str = "featuredescriptio";
 }
 
 /// A typed SOAP header entry.
@@ -200,7 +202,7 @@ impl HeaderEntry {
             )),
             Self::IntermediaryCertificates { .. } => Some("intermediarycertificates".into()),
             Self::NonIntermediaryCertificates { .. } => Some("nonintermediarycertificates".into()),
-            Self::FeatureDescription(_) => Some("featuredescription".into()),
+            Self::FeatureDescription(_) => Some("featuredescriptio".into()),
             Self::Custom { id } => id.clone(),
             Self::Other { .. } => None,
         }
@@ -503,7 +505,10 @@ impl<W: std::io::Write> Composer<W> {
         if let Some(timeout) = fd.chunk_message_timeout {
             write!(self.out, " ChunkMessageTimeout=\"{timeout}\"")?;
         }
-        write!(self.out, " Id=\"featuredescription\"")?;
+        // Java HeaderEntry default Id: class name minus its last
+        // character, lowercased ("FeatureDescriptionH" ->
+        // "featuredescriptio") - the live manager sees this spelling
+        write!(self.out, " Id=\"featuredescriptio\"")?;
         if let Some(v) = fd.max_chunk_size {
             write!(self.out, " MaxChunkSize=\"{v}\"")?;
         }

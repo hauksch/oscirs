@@ -217,7 +217,15 @@ impl MockIntermediary for ScriptedIntermediary {
                     max_chunk_size: Some(1024),
                     max_message_size: Some(4096),
                     min_chunk_size: Some(128),
-                    features: vec![("DisableBase64".into(), "1.0.0".into())],
+                    // the six OSCIFeatures the reference client declares
+                    features: vec![
+                        ("DisableBase64".into(), "1.2.0".into()),
+                        ("OAEPEncryption".into(), "1.6.0".into()),
+                        ("SHA3HashAlgo".into(), "1.6.3".into()),
+                        ("GCMPaddingModus".into(), "1.7.0".into()),
+                        ("PartialMessageTransmission".into(), "1.8.0".into()),
+                        ("Support96Bit12ByteIV".into(), "1.9.0".into()),
+                    ],
                 }),
             entry_inner: match response_kind {
                 MessageType::ResponseToGetMessageId => {
@@ -589,7 +597,14 @@ fn chunked_send_round() {
             max_chunk_size: Some(1024),
             max_message_size: Some(4096),
             min_chunk_size: Some(128),
-            features: vec![("DisableBase64".into(), "1.0.0".into())],
+            features: vec![
+                ("DisableBase64".into(), "1.2.0".into()),
+                ("OAEPEncryption".into(), "1.6.0".into()),
+                ("SHA3HashAlgo".into(), "1.6.3".into()),
+                ("GCMPaddingModus".into(), "1.7.0".into()),
+                ("PartialMessageTransmission".into(), "1.8.0".into()),
+                ("Support96Bit12ByteIV".into(), "1.9.0".into()),
+            ],
         });
         out.containers.push(OutContentContainer {
             id: "ChunkContentContainer".into(),

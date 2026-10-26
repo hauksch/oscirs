@@ -493,7 +493,15 @@ fn partial_store_delivery_live_shape() {
             max_chunk_size: Some(1024),
             max_message_size: Some(4096),
             min_chunk_size: Some(128),
-            features: vec![("DisableBase64".into(), "1.0.0".into())],
+            // the six OSCIFeatures the reference client declares
+            features: vec![
+                ("DisableBase64".into(), "1.2.0".into()),
+                ("OAEPEncryption".into(), "1.6.0".into()),
+                ("SHA3HashAlgo".into(), "1.6.3".into()),
+                ("GCMPaddingModus".into(), "1.7.0".into()),
+                ("PartialMessageTransmission".into(), "1.8.0".into()),
+                ("Support96Bit12ByteIV".into(), "1.9.0".into()),
+            ],
         }),
         containers: vec![OutContentContainer {
             id: "ChunkContentContainer".into(),
@@ -518,6 +526,14 @@ fn partial_store_delivery_live_shape() {
     let mut xml = Vec::new();
     part.read_to_end(&mut xml).unwrap();
     let xml = String::from_utf8(xml).unwrap();
+
+    // DesiredLanguages (mandatory on requests, issue #8)
+    assert!(
+        xml.contains(
+            "Id=\"desiredlanguages\" LanguagesList=\"de\" soap:actor=\"http://schemas.xmlsoap.org/soap/actor/next\""
+        ),
+        "DesiredLanguages wire form: {xml}"
+    );
 
     // creation QoT present even with the flag unset, no reception QoT
     assert!(

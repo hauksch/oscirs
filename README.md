@@ -91,7 +91,10 @@ Every layer is gated against the pinned reference:
   reference checkFeedbackRows, other non-0 codes reject; partial
   requests require Challenge + SequenceNumber, and attachment parts
   carry the reference writer's MIME headers (base64 | 8-bit CTE,
-  Content-Length)
+  Content-Length); DesiredLanguages is mandatory on requests (issue #8
+  - its absence drew live 9300 on partial deliveries); the
+  FeatureDescription rides with the Java header Id quirk
+  ("featuredescriptio") and is transport-signed like the reference
 - [x] MessageMetaData extension header (parse **and compose**: custom
   headers ride canonically with a spliced `Id` in the Java custom-header
   slot, after the FeatureDescription, and become transport-signature

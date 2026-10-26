@@ -108,6 +108,7 @@ fn content_encryption_roundtrips_all_combinations() {
                 // with the addressee cipher certificate (issue #3 model)
                 non_intermediary_certificates: store_delivery_certs(),
                 encrypted_data: vec![enc],
+                desired_languages: Some("de".into()),
                 ..Default::default()
             };
             let stream =
@@ -167,6 +168,7 @@ fn signed_and_encrypted_verifies_and_tamper_detected() {
                 der: cert_der("bob_cipher_4096.pem"),
             },
         ],
+        desired_languages: Some("de".into()),
         ..Default::default()
     };
     let enc = osci::security::encrypt_container(
@@ -227,6 +229,7 @@ fn transport_envelope_shape_and_roundtrip() {
             response: None,
             sequence_number: Some(0),
         },
+        desired_languages: Some("de".into()),
         ..Default::default()
     };
     let signed_stream =
@@ -321,6 +324,7 @@ fn encrypted_plaintext_matches_container_writer() {
             sequence_number: Some(1),
             ..Default::default()
         },
+        desired_languages: Some("de".into()),
         non_intermediary_certificates: store_delivery_certs(),
         encrypted_data: vec![enc],
         ..Default::default()
@@ -345,6 +349,7 @@ fn transport_cipher_part_is_binary_dialect() {
             response: None,
             sequence_number: Some(0),
         },
+        desired_languages: Some("de".into()),
         ..Default::default()
     };
     let signed_stream =
@@ -627,6 +632,7 @@ fn encrypted_attachments_roundtrip() {
             sequence_number: Some(1),
             ..Default::default()
         },
+        desired_languages: Some("de".into()),
         non_intermediary_certificates: store_delivery_certs(),
         containers: vec![OutContentContainer {
             id: "contentcontainer".into(),

@@ -171,6 +171,7 @@ fn hostile_control_block_values_are_escaped() {
             challenge: Some("Y2hhbGxlbmdl".into()),
             response: None,
         },
+        desired_languages: Some("de".into()),
         ..Default::default()
     };
     let err = compose_message(&rejected, "MIME_boundary").unwrap_err();
@@ -185,6 +186,7 @@ fn hostile_control_block_values_are_escaped() {
             challenge: Some(hostile.into()),
             response: None,
         },
+        desired_languages: Some("de".into()),
         ..Default::default()
     };
     let stream = compose_message(&escaped, "MIME_boundary").unwrap();

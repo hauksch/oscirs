@@ -222,7 +222,9 @@ fn all_entry_ids(doc: &osci_core::xml::Document) -> Vec<String> {
         "qualityoftimestamp_reception",
         "nonintermediarycertificates",
         "intermediarycertificates",
-        "featuredescription",
+        // the FeatureDescription is NOT fixed: the reference client signs
+        // it (its Java Id is "featuredescriptio"), so it must flow into
+        // the reference list
     ];
     header
         .elements()

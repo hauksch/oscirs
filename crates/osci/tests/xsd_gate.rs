@@ -658,3 +658,27 @@ fn rule_less_fetch_delivery_is_schema_valid() {
     msg.selection_rule = None;
     validate_composed("rule-less-FetchDelivery", &msg);
 }
+
+/// Issue #8: the exact partial-store shape rosci ships live (MessageId
+/// entry, chunk attributes, six reference features, DesiredLanguages,
+/// blob container) validates against the normative schema.
+#[test]
+fn partial_store_delivery_live_shape_is_schema_valid() {
+    let mut msg = legal_message(MessageType::PartialStoreDelivery);
+    msg.feature_description = Some(osci_core::soap::FeatureDescription {
+        chunk_message_timeout: Some(60),
+        max_chunk_size: Some(1024),
+        max_message_size: Some(4096),
+        min_chunk_size: Some(128),
+        features: vec![
+            ("DisableBase64".into(), "1.2.0".into()),
+            ("OAEPEncryption".into(), "1.6.0".into()),
+            ("SHA3HashAlgo".into(), "1.6.3".into()),
+            ("GCMPaddingModus".into(), "1.7.0".into()),
+            ("PartialMessageTransmission".into(), "1.8.0".into()),
+            ("Support96Bit12ByteIV".into(), "1.9.0".into()),
+        ],
+    });
+    msg.entry_inner = Some("<osci:MessageId>bXNn</osci:MessageId>".into());
+    validate_composed("partial-store-live-shape", &msg);
+}

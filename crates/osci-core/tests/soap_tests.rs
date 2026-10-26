@@ -320,7 +320,7 @@ fn composes_feature_description() {
     assert_eq!(
         out,
         format!(
-            "<osci2017:FeatureDescription{ns2017} ChunkMessageTimeout=\"300\" Id=\"featuredescription\" MaxChunkSize=\"50\" MaxMessageSize=\"500\" MinChunkSize=\"1\"><osci2017:SupportedFeatures><osci2017:Feature Key=\"effi\" Version=\"1.2.0\"></osci2017:Feature></osci2017:SupportedFeatures></osci2017:FeatureDescription>"
+            "<osci2017:FeatureDescription{ns2017} ChunkMessageTimeout=\"300\" Id=\"featuredescriptio\" MaxChunkSize=\"50\" MaxMessageSize=\"500\" MinChunkSize=\"1\"><osci2017:SupportedFeatures><osci2017:Feature Key=\"effi\" Version=\"1.2.0\"></osci2017:Feature></osci2017:SupportedFeatures></osci2017:FeatureDescription>"
         )
     );
 }
