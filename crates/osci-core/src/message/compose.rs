@@ -302,10 +302,22 @@ fn control_block_model(kind: MessageType) -> ControlBlockModel {
             conversation_id: Optional,
             sequence_number: Optional,
         },
-        // 2017 partial messages: unrestricted ControlBlockTemplate
-        MessageType::PartialStoreDelivery
-        | MessageType::PartialFetchDelivery
-        | MessageType::ResponseToPartialStoreDelivery
+        // 2017 partial messages inherit the unrestricted
+        // ControlBlockTemplate, but the reference client refuses to
+        // compose partial REQUESTS without Challenge and SequenceNumber
+        // (throws IllegalStateException) - the live intermediary relies
+        // on both (issue #7)
+        MessageType::PartialStoreDelivery | MessageType::PartialFetchDelivery => {
+            ControlBlockModel {
+                response_allowed: true,
+                response_required: false,
+                challenge_allowed: true,
+                challenge_required: true,
+                conversation_id: Optional,
+                sequence_number: Required,
+            }
+        }
+        MessageType::ResponseToPartialStoreDelivery
         | MessageType::ResponseToPartialFetchDelivery => ControlBlockModel {
             response_allowed: true,
             response_required: false,
@@ -602,8 +614,8 @@ pub struct OutEncryptedData {
 pub struct OutAttachment {
     pub content_id: String,
     pub content_type: String,
-    /// Legacy base64 transfer encoding (binary is the default since
-    /// 03/2023).
+    /// base64 transfer encoding (`Content-Transfer-Encoding: base64`);
+    /// the default is raw `8-bit` like the reference Attachment writer.
     pub base64_encoding: bool,
     pub data: Vec<u8>,
 }
@@ -981,16 +993,20 @@ pub fn compose_message(msg: &OutMessage, boundary: &str) -> Result<Vec<u8>, Comp
     out.extend_from_slice(&xml);
     for att in &msg.attachments {
         out.extend_from_slice(format!("\r\n--{boundary}\r\n").as_bytes());
+        // Java Attachment.writeXML part headers: Content-Type,
+        // Content-Transfer-Encoding (base64 | 8-bit - NOT binary),
+        // Content-ID, Content-Length (the raw data length)
         out.extend_from_slice(
             format!(
-                "Content-Type: {}\r\nContent-Transfer-Encoding: {}\r\nContent-ID: <{}>\r\n\r\n",
+                "Content-Type: {}\r\nContent-Transfer-Encoding: {}\r\nContent-ID: <{}>\r\nContent-Length: {}\r\n\r\n",
                 att.content_type,
                 if att.base64_encoding {
                     "base64"
                 } else {
-                    "binary"
+                    "8-bit"
                 },
-                att.content_id
+                att.content_id,
+                att.data.len()
             )
             .as_bytes(),
         );

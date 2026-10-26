@@ -86,7 +86,12 @@ Every layer is gated against the pinned reference:
   `Dialog::compose_signed_stream` composes+signs the full delivery
   without transmitting (issue #4) - the caller splits the stream and
   ships each blob as a PartialStoreDelivery attachment; rule-less fetch
-  deliveries (the "ALL" selection) omit the SelectionRule entirely
+  deliveries (the "ALL" selection) omit the SelectionRule entirely;
+  feedback 3800 ("more deliveries pending") is tolerated like the
+  reference checkFeedbackRows, other non-0 codes reject; partial
+  requests require Challenge + SequenceNumber, and attachment parts
+  carry the reference writer's MIME headers (base64 | 8-bit CTE,
+  Content-Length)
 - [x] MessageMetaData extension header (parse **and compose**: custom
   headers ride canonically with a spliced `Id` in the Java custom-header
   slot, after the FeatureDescription, and become transport-signature

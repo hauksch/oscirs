@@ -405,11 +405,13 @@ impl Dialog {
         self.check_control_block(&response_block)?;
         self.check_response_signatures(stored)?;
 
-        // feedback error codes: anything not starting with 0 (and not the
-        // certificate-validation 37xx tolerance of the reference tests)
-        // is an error
+        // feedback error codes: per the reference checkFeedbackRows, a row
+        // is an error when the code does not start with '0' and is not
+        // exactly 3800 - 3800 ("more deliveries pending after a
+        // successful fetch") accompanies successful fetch-all responses
+        // and must reach the downstream classification
         for feedback in &message.feedback {
-            if !feedback.code.starts_with('0') && !feedback.code.starts_with("37") {
+            if !feedback.code.starts_with('0') && feedback.code != "3800" {
                 return Err(DialogError::ErrorFeedback {
                     code: feedback.code.clone(),
                     text: feedback.text.clone(),

@@ -32,6 +32,9 @@ struct ScriptedIntermediary {
     /// respond with a broken challenge from this request count on
     /// (1-based; usize::MAX = never)
     break_from_round: Mutex<usize>,
+    /// override the success feedback of the next response (feedback
+    /// classification tests)
+    feedback_override: Mutex<Option<(String, String)>>,
     /// stored deliveries (the " mailbox", for the async scenario)
     mailbox: Arc<Mutex<Vec<Vec<u8>>>>,
 }
@@ -42,6 +45,7 @@ impl ScriptedIntermediary {
             seen,
             break_challenge_once: Mutex::new(false),
             break_from_round: Mutex::new(usize::MAX),
+            feedback_override: Mutex::new(None),
             mailbox: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -147,11 +151,20 @@ impl MockIntermediary for ScriptedIntermediary {
             response_block.sequence_number = None;
         }
 
-        let (feedback_code, feedback_text) = match kind {
-            MessageType::StoreDelivery | MessageType::PartialStoreDelivery => {
-                ("0801", "Auftrag ausgeführt, Dialog weiterhin geöffnet")
-            }
-            _ => ("0800", "Auftrag ausgeführt"),
+        let override_feedback = if kind == MessageType::InitDialog {
+            None
+        } else {
+            self.feedback_override.lock().unwrap().take()
+        };
+        let (feedback_code, feedback_text): (String, String) = match override_feedback {
+            Some((code, text)) => (code, text),
+            None => match kind {
+                MessageType::StoreDelivery | MessageType::PartialStoreDelivery => (
+                    "0801".to_string(),
+                    "Auftrag ausgeführt, Dialog weiterhin geöffnet".to_string(),
+                ),
+                _ => ("0800".to_string(), "Auftrag ausgeführt".to_string()),
+            },
         };
 
         // response entry children per type (Feedback is written from
@@ -184,8 +197,8 @@ impl MockIntermediary for ScriptedIntermediary {
             // the response schemas have no DesiredLanguages slot
             feedback: vec![OutFeedback {
                 language: Some("de".into()),
-                code: feedback_code.into(),
-                text: feedback_text.into(),
+                code: feedback_code,
+                text: feedback_text,
             }],
             // the partial-store response entry requires ChunkInformation
             // (with ReceivedChunks) and the soap schema the
@@ -608,4 +621,47 @@ fn chunked_send_round() {
         );
     }
     assert_eq!(seen.lock().unwrap().len(), 3, "init + two chunks");
+}
+
+/// Issue #7 part 1: feedback 3800 ("more deliveries pending after a
+/// successful fetch") accompanies successful fetch-all responses and
+/// must reach the downstream classification, not abort the exchange.
+#[test]
+fn fetch_feedback_3800_is_accepted() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let intermediary = ScriptedIntermediary::new(seen.clone());
+    // applies to the fetch round (the init response keeps its success code)
+    *intermediary.feedback_override.lock().unwrap() =
+        Some(("3800".into(), "Weitere Lieferungen stehen aus".into()));
+    let transport = LoopbackTransport::new(Box::new(intermediary));
+    let mut dialog = Dialog::new(Box::new(transport));
+    init_dialog(&mut dialog);
+
+    let mut out = unsigned_out(MessageType::FetchDelivery, None);
+    out.selection_rule = Some("bXNn".into());
+    let response = dialog.send(&mut out, &[], "MIME_boundary").unwrap();
+    assert_eq!(response.kind, Some(MessageType::ResponseToFetchDelivery));
+    let feedback = first_feedback(&response).unwrap();
+    assert_eq!(feedback.code, "3800", "3800 reaches the caller");
+}
+
+/// The tolerance does not extend to other non-success codes: 3707 stays
+/// an exchange error.
+#[test]
+fn fetch_feedback_3707_is_rejected() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let intermediary = ScriptedIntermediary::new(seen.clone());
+    *intermediary.feedback_override.lock().unwrap() =
+        Some(("3707".into(), "Zertifikat abgelaufen".into()));
+    let transport = LoopbackTransport::new(Box::new(intermediary));
+    let mut dialog = Dialog::new(Box::new(transport));
+    init_dialog(&mut dialog);
+
+    let mut out = unsigned_out(MessageType::FetchDelivery, None);
+    out.selection_rule = Some("bXNn".into());
+    let error = dialog.send(&mut out, &[], "MIME_boundary").unwrap_err();
+    assert!(
+        matches!(error, DialogError::ErrorFeedback { ref code, .. } if code == "3707"),
+        "3707 rejected: {error:?}"
+    );
 }

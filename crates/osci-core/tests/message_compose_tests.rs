@@ -504,6 +504,12 @@ fn partial_store_delivery_live_shape() {
             }],
             encrypted_attachments: Vec::new(),
         }],
+        attachments: vec![osci_core::message::compose::OutAttachment {
+            content_id: "chunk-1".into(),
+            content_type: "text".into(),
+            base64_encoding: false,
+            data: vec![0x41; 64],
+        }],
         ..Default::default()
     };
     let stream = compose_message(&out, "MIME_boundary").unwrap();
@@ -550,5 +556,42 @@ fn partial_store_delivery_live_shape() {
         body.matches("<osci:ContentContainer").count(),
         1,
         "exactly one container"
+    );
+
+    // control block: challenge + sequence mandatory on partial requests
+    // (the reference client throws without them)
+    assert!(xml.contains("SequenceNumber=\"1\""));
+    assert!(xml.contains("<osci:Challenge>"), "challenge child present");
+
+    // the chunk-blob MIME part carries the reference writer's headers:
+    // Content-Transfer-Encoding 8-bit (not binary) and Content-Length
+    let stream_headers = xml.clone(); // xml part only; the parts are below
+    let _ = stream_headers;
+    let full = {
+        let mut s = Vec::new();
+        s.extend_from_slice(&stream);
+        compose_message(&out, "MIME_boundary").unwrap()
+    };
+    let full = String::from_utf8(full).unwrap();
+    let blob_pos = full.find("Content-ID: <chunk-1>").expect("blob part");
+    let part_start = full[..blob_pos]
+        .rfind("\r\n--MIME_boundary")
+        .expect("blob part boundary");
+    let headers_end = full[blob_pos..]
+        .find("\r\n\r\n")
+        .map(|p| blob_pos + p)
+        .expect("header block end");
+    let headers = &full[part_start..headers_end];
+    assert!(
+        headers.contains("Content-Type: text\r\n"),
+        "caller-controlled content type: {headers}"
+    );
+    assert!(
+        headers.contains("Content-Transfer-Encoding: 8-bit\r\n"),
+        "reference CTE token: {headers}"
+    );
+    assert!(
+        headers.ends_with("Content-Length: 64"),
+        "Content-Length = raw data length: {headers}"
     );
 }
