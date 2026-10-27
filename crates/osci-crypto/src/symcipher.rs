@@ -384,7 +384,13 @@ impl CbcDecrypt {
         if pad == 0 || pad > self.block_size {
             return Err(CryptoError::Decryption("bad PKCS#7 padding".into()));
         }
-        if plain[self.block_size - pad..] != vec![pad as u8; pad][..] {
+        // constant-time padding check (fold-compare): an early-exit
+        // slice comparison would leak the first differing pad byte
+        if plain[self.block_size - pad..]
+            .iter()
+            .fold(0u8, |acc, &b| acc | (b ^ pad as u8))
+            != 0
+        {
             return Err(CryptoError::Decryption("bad PKCS#7 padding".into()));
         }
         out.extend_from_slice(&plain[..self.block_size - pad]);

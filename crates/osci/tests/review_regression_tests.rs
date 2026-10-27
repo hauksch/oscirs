@@ -117,16 +117,16 @@ fn missing_region_reference_fails_closed() {
     );
     let report = verify_message(&xml, &[]).unwrap();
     let signature = &report.signatures[0];
-    // the reference targets a transport-signed element (direct Header
-    // child) whose region is missing - it must be checked-and-failed,
-    // not skipped
-    let nic = signature
-        .references
-        .iter()
-        .find(|r| r.uri == "#nonintermediarycertificates")
-        .expect("reference present");
-    assert_eq!(nic.checked, Some(false), "missing region must fail closed");
-    assert!(!report.all_valid());
+    // since the review fix, certificates are only collected from genuine
+    // *Certificate* header entries: the planted "Warrant" element no
+    // longer supplies the signing certificate, so the signature is
+    // unverifiable outright (stronger than the old per-reference
+    // checked-and-failed outcome) - either way it must fail closed
+    assert!(
+        !report.all_valid(),
+        "planted cert element must not validate: {report:#?}"
+    );
+    assert!(!signature.signature_valid);
 }
 
 /// A4: deeply nested XML is rejected with an error instead of crashing.

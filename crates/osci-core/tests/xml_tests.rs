@@ -311,3 +311,47 @@ fn text_normalization_in_output() {
     let _ = doc;
     assert_eq!(result.bytes, b"<a>line1\n   line2&#xD;</a>");
 }
+
+/// Review regression (c14n delta-scope refactor): a prefix SHADOWED by a
+/// nested declaration must resolve to the inner URI both in the
+/// re-declared scope block of a signed element and in attribute keys.
+#[test]
+fn c14n_prefix_shadowing_inner_uri_wins() {
+    let xml = r#"<a xmlns:p="urn:outer"><p:sig Id="sig"><p:b xmlns:p="urn:inner" p:attr="v"/></p:sig></a>"#;
+    let canon = canonicalize_str(xml).unwrap();
+    // the inner re-declaration wins for the nested element
+    assert!(
+        canon.bytes.windows("<p:b".len()).any(|w| w == b"<p:b"),
+        "prefix kept"
+    );
+    // the signed (inner) element's canonical region resolves p to urn:inner:
+    // the attribute key carries the inner URI, not the outer one
+    let region = &canon.bytes;
+    assert!(
+        region
+            .windows(b"urn:inner".len())
+            .any(|w| w == b"urn:inner"),
+        "inner URI used: {}",
+        String::from_utf8_lossy(region)
+    );
+    assert!(
+        !region
+            .windows(b"urn:outer,p:attr".len())
+            .any(|w| w == b"urn:outer,p:attr"),
+        "outer URI must not key the shadowed attribute"
+    );
+}
+
+/// Review regression (c14n delta-scope refactor): an `xmlns=""`
+/// undeclaration resets the default namespace - emitted on unsigned
+/// elements, and the un-namespaced element keeps an empty element URI.
+#[test]
+fn c14n_default_ns_undeclaration_reset() {
+    let xml = r#"<a xmlns="urn:x"><b xmlns=""><c/></b></a>"#;
+    let canon = canonicalize_str(xml).unwrap();
+    let out = String::from_utf8(canon.bytes).unwrap();
+    // the reset declaration is emitted on b
+    assert!(out.contains("<b xmlns=\"\""), "reset emitted: {out}");
+    // c has no default namespace: rendered as <c> without re-declaration
+    assert!(out.contains("<c/>") || out.contains("<c></c>"), "{out}");
+}

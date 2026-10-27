@@ -291,13 +291,10 @@ impl SwapBuffer {
     }
 
     fn spill_to_file(&mut self) -> io::Result<()> {
-        // take the buffered bytes out of the writer state (the writer is
-        // replaced by the file state below, before anything is written)
-        // instead of cloning up to the whole buffer
-        let buffered = match self.writer.as_mut() {
-            Some(WriterState::Memory(buffered)) => std::mem::take(buffered),
-            _ => return Ok(()),
-        };
+        // the file is created BEFORE the buffered bytes are taken out of
+        // the writer state: a failed open (disk full, no tmpdir, perms)
+        // must leave the memory buffer intact - taking first would
+        // silently discard the whole prefix (review finding)
         let mut path = std::env::temp_dir();
         path.push(format!(
             "osci-{}-{}",
@@ -318,6 +315,13 @@ impl SwapBuffer {
         #[cfg(not(unix))]
         let file = File::create_new(&path)?;
         let writer = BufWriter::new(file);
+        // infallible from here: take the buffered bytes and swap the
+        // writer state in one straight-line stretch (no clone of the
+        // buffer needed, and the failed-open path above left it intact)
+        let buffered = match self.writer.as_mut() {
+            Some(WriterState::Memory(buffered)) => std::mem::take(buffered),
+            _ => return Ok(()),
+        };
         self.writer = Some(if self.confidential {
             WriterState::Encrypted {
                 writer,

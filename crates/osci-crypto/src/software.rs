@@ -258,6 +258,16 @@ pub fn unwrap_session_key(
     mgf_algorithm: Option<&str>,
     digest_algorithm: Option<&str>,
 ) -> Result<Vec<u8>, CryptoError> {
+    // mirror wrap_session_key's SHA-3 -> SHA-2 mapping: the Java
+    // convention encrypts with the SHA-2 primitives while the wire keeps
+    // the original URI - without it such envelopes can never be opened
+    let digest_algorithm = digest_algorithm.map(|digest| match digest {
+        crate::algorithms::DIGEST_SHA3_256 => crate::algorithms::DIGEST_SHA256,
+        crate::algorithms::DIGEST_SHA3_384 | crate::algorithms::DIGEST_SHA3_512 => {
+            crate::algorithms::DIGEST_SHA512
+        }
+        other => other,
+    });
     match algorithm {
         DEFAULT_KEY_TRANSPORT => {
             let digest = digest_algorithm.unwrap_or(crate::algorithms::DIGEST_SHA256);

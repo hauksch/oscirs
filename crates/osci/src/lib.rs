@@ -13,10 +13,17 @@ pub mod sign;
 
 // Facade re-exports: the daily-driver types from the inner crates.
 pub use osci_core::helper::dates::{format_iso8601, parse_iso8601};
-pub use osci_core::message::compose::{OutMessage, compose_message};
+pub use osci_core::message::compose::{
+    EncryptParams, KeyInfoRef, KeyTransportParams, OutAttachment, OutCertEntry, OutContent,
+    OutContentContainer, OutCustomHeader, OutEncryptedAttachment, OutEncryptedData,
+    OutEncryptedKey, OutFeedback, OutMessage, OutProcessCard, OutProcessCardBundle,
+    compose_message,
+};
 pub use osci_core::message::stored::StoredMessage;
+pub use osci_core::message::{ChunkInformation, Inspection};
 pub use osci_core::message::{MessageType, OsciMessage, parse_message};
 pub use osci_core::soap::ControlBlock;
+pub use osci_core::soap::FeatureDescription;
 pub use osci_crypto::algorithms::{SymCipher, digest_bytes};
 pub use osci_crypto::software::{Decrypter, RsaDecrypter, RsaSigner, Signer};
 pub use osci_crypto::{Certificate, CryptoError};
@@ -32,8 +39,10 @@ pub mod prelude {
     };
     pub use super::sign::{SignError, SignParams, sign_message_xml};
     pub use super::{
-        Certificate, ControlBlock, CryptoError, MessageType, OutMessage, RsaDecrypter, RsaSigner,
-        Signer, StoredMessage, SymCipher, Transport, TransportError, compose_message,
-        format_iso8601, parse_iso8601, parse_message,
+        Certificate, ChunkInformation, ControlBlock, CryptoError, FeatureDescription, KeyInfoRef,
+        MessageType, OutAttachment, OutCertEntry, OutContent, OutContentContainer, OutCustomHeader,
+        OutEncryptedData, OutFeedback, OutMessage, OutProcessCard, OutProcessCardBundle,
+        RsaDecrypter, RsaSigner, Signer, StoredMessage, SymCipher, Transport, TransportError,
+        compose_message, format_iso8601, parse_iso8601, parse_message,
     };
 }

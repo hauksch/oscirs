@@ -40,6 +40,7 @@ pub enum DialogError {
 /// How strictly `Dialog::send` treats the response's transport
 /// signature (the intermediary's `SupplierSignature`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SignaturePolicy {
     /// Do not verify response signatures.
     Ignore,
@@ -66,6 +67,8 @@ pub struct Dialog {
     transport_encryption: Option<TransportEncryption>,
     /// Keys for unwrapping transport-encrypted responses.
     response_decrypters: Vec<RsaDecrypter>,
+    /// DER certificates a response signer must present (empty = any).
+    trusted_response_signers: Vec<Vec<u8>>,
     /// Signature-verification policy for responses.
     signature_policy: SignaturePolicy,
     /// Verification report of the last response (when the policy
@@ -96,6 +99,7 @@ impl Dialog {
             signer: None,
             certificate_id: None,
             response_decrypters: Vec::new(),
+            trusted_response_signers: Vec::new(),
             signature_policy: SignaturePolicy::default(),
             last_response_report: None,
         }
@@ -127,6 +131,17 @@ impl Dialog {
     /// SOAPMessageEncrypted envelope, `send` unwraps it before parsing.
     pub fn with_response_decrypters(mut self, decrypters: Vec<RsaDecrypter>) -> Self {
         self.response_decrypters = decrypters;
+        self
+    }
+
+    /// Pin the certificates a response signer must present (DER). When
+    /// set, the verifying signature policies additionally require that at
+    /// least one valid signature was made by one of these certificates -
+    /// without this, `VerifyIfPresent`/`Require` authenticate signature
+    /// MATH, not the signer (any self-signed certificate would satisfy
+    /// them).
+    pub fn with_trusted_response_signers(mut self, trusted: Vec<Vec<u8>>) -> Self {
+        self.trusted_response_signers = trusted;
         self
     }
 
@@ -214,7 +229,8 @@ impl Dialog {
         // reject anything that is not well-formed protocol data before it
         // gets there, in addition to the composer-side escaping.
         let well_formed = |value: &str| {
-            value.len() <= 256
+            !value.is_empty()
+                && value.len() <= 256
                 && value
                     .chars()
                     .all(|c| c.is_ascii_graphic() && !matches!(c, '"' | '<' | '>' | '&'))
@@ -368,12 +384,25 @@ impl Dialog {
     fn transport_envelope(&self, stored: &StoredMessage) -> Result<Option<Vec<u8>>, DialogError> {
         let doc = parser::parse(&String::from_utf8_lossy(&stored.xml))
             .map_err(|e| DialogError::Parse(e.to_string()))?;
-        let is_envelope = osci_core::soap::find_header(&doc).is_none_or(|header| {
-            // envelope: no control block, the body is the EncryptedData
-            let body = doc.root.elements().find(|e| e.local == "Body");
-            body.is_some_and(|body| body.elements().any(|e| e.local == "EncryptedData"))
-                && header.elements().all(|e| e.local != "ControlBlock")
-        });
+        // envelope: the Body carries a transport EncryptedData (with
+        // CipherData - content-level EncryptedData nests inside the
+        // ContentPackage) and no ControlBlock header entry is present.
+        // A response with neither header nor body EncryptedData (e.g. a
+        // SOAP fault) is NOT an envelope.
+        let body = doc.root.elements().find(|e| e.local == "Body");
+        let body_encrypted = body
+            .map(|body| {
+                body.elements()
+                    .filter(|e| e.local == "EncryptedData")
+                    .any(|enc| {
+                        enc.elements()
+                            .any(|e| e.local == "CipherData" || e.local == "EncryptedKey")
+                    })
+            })
+            .unwrap_or(false);
+        let is_envelope = body_encrypted
+            && osci_core::soap::find_header(&doc)
+                .is_none_or(|header| header.elements().all(|e| e.local != "ControlBlock"));
         if !is_envelope {
             return Ok(None);
         }
@@ -402,8 +431,29 @@ impl Dialog {
             .map_err(|e| DialogError::Parse(e.to_string()))?;
         let response_block = control_block_of(&doc)
             .ok_or_else(|| DialogError::Parse("no control block in response".into()))?;
-        self.check_control_block(&response_block)?;
+        // a SequenceNumber attribute that is present but unparseable
+        // (garbage or > u32::MAX) must not silently reset the dialog
+        // counter - reject unless the responding kind legitimately omits
+        // the attribute
+        if let Some(kind) = message.kind {
+            let attr_present = osci_core::soap::find_header(&doc)
+                .and_then(|header| header.elements().find(|e| e.local == "ControlBlock"))
+                .map(|cb| cb.attr("SequenceNumber").is_some())
+                .unwrap_or(false);
+            if attr_present
+                && response_block.sequence_number.is_none()
+                && osci_core::message::compose::control_block_allows_sequence(kind)
+            {
+                return Err(DialogError::WrongControlBlock(
+                    "SequenceNumber present but not a valid number".into(),
+                ));
+            }
+        }
+        // signature verification runs BEFORE the control-block state is
+        // adopted: a rejected response must not leave attacker-planted
+        // challenge/sequence state in the dialog
         self.check_response_signatures(stored)?;
+        self.check_control_block(&response_block)?;
 
         // feedback error codes: per the reference checkFeedbackRows, a row
         // is an error when the code does not start with '0' and is not
@@ -423,6 +473,8 @@ impl Dialog {
 
     /// Apply the signature policy to the response and record the report.
     fn check_response_signatures(&mut self, stored: &StoredMessage) -> Result<(), DialogError> {
+        // never serve a stale report from a previous message
+        self.last_response_report = None;
         let attachments: Vec<(String, Vec<u8>)> = stored
             .attachments
             .iter()
@@ -452,11 +504,22 @@ impl Dialog {
                         "invalid response signature: {report:?}"
                     )));
                 }
-                if self.signature_policy == SignaturePolicy::Require && report.signatures.is_empty()
-                {
-                    return Err(DialogError::Verification(
-                        "policy requires a response signature".into(),
-                    ));
+                // identity pinning (when configured): at least one valid
+                // signature must come from a trusted certificate
+                if !self.trusted_response_signers.is_empty() {
+                    let trusted = report.signatures.iter().any(|sig| {
+                        sig.all_valid()
+                            && sig
+                                .certificate_der
+                                .as_deref()
+                                .map(|der| self.trusted_response_signers.contains(&der.to_vec()))
+                                .unwrap_or(false)
+                    });
+                    if !trusted {
+                        return Err(DialogError::Verification(
+                            "response not signed by a trusted certificate".into(),
+                        ));
+                    }
                 }
                 self.last_response_report = Some(report);
             }

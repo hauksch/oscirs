@@ -306,19 +306,35 @@ fn control_block_model(kind: MessageType) -> ControlBlockModel {
         // ControlBlockTemplate, but the reference client refuses to
         // compose partial REQUESTS without Challenge and SequenceNumber
         // (throws IllegalStateException) - the live intermediary relies
-        // on both (issue #7)
-        MessageType::PartialStoreDelivery | MessageType::PartialFetchDelivery => {
-            ControlBlockModel {
-                response_allowed: true,
-                response_required: false,
-                challenge_allowed: true,
-                challenge_required: true,
-                conversation_id: Optional,
-                sequence_number: Required,
-            }
-        }
-        MessageType::ResponseToPartialStoreDelivery
-        | MessageType::ResponseToPartialFetchDelivery => ControlBlockModel {
+        // on both (issue #7). Partial fetch requests additionally demand
+        // Response + ConversationId (PartialFetchDelivery.compose).
+        MessageType::PartialFetchDelivery => ControlBlockModel {
+            response_allowed: true,
+            response_required: true,
+            challenge_allowed: true,
+            challenge_required: true,
+            conversation_id: Required,
+            sequence_number: Required,
+        },
+        MessageType::PartialStoreDelivery => ControlBlockModel {
+            response_allowed: true,
+            response_required: false,
+            challenge_allowed: true,
+            challenge_required: true,
+            conversation_id: Optional,
+            sequence_number: Required,
+        },
+        // the partial-store response demands Response + ConversationId +
+        // SequenceNumber (ResponseToPartialStoreDelivery.compose)
+        MessageType::ResponseToPartialStoreDelivery => ControlBlockModel {
+            response_allowed: true,
+            response_required: true,
+            challenge_allowed: true,
+            challenge_required: false,
+            conversation_id: Required,
+            sequence_number: Required,
+        },
+        MessageType::ResponseToPartialFetchDelivery => ControlBlockModel {
             response_allowed: true,
             response_required: false,
             challenge_allowed: true,
@@ -567,6 +583,7 @@ impl KeyTransportParams {
 /// (content encryption) or the inline X509 certificate (transport
 /// envelope).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum KeyInfoRef {
     CertElementId(String),
     InlineCertDer(Vec<u8>),
@@ -776,13 +793,13 @@ fn entry_inner_xml(msg: &OutMessage, kind: MessageType) -> String {
                 let lang = fb
                     .language
                     .as_deref()
-                    .map(|l| format!(" xml:lang=\"{l}\""))
+                    .map(|l| format!(" xml:lang=\"{}\"", attr(l)))
                     .unwrap_or_default();
                 let mut text = Vec::new();
                 escape_text(&fb.text, &mut text).ok();
                 xml.push_str(&format!(
                     "<osci:Entry{lang}><osci:Code>{}</osci:Code><osci:Text>{}</osci:Text></osci:Entry>",
-                    fb.code,
+                    escaped_text(&fb.code),
                     String::from_utf8_lossy(&text)
                 ));
             }
@@ -826,6 +843,12 @@ fn entry_inner_xml(msg: &OutMessage, kind: MessageType) -> String {
             }
         }
     }
+    // the partial-store response sequence puts ProcessCardBundle BEFORE
+    // ChunkInformation (InsideFeedback?, Feedback, ProcessCardBundle?,
+    // ChunkInformation)
+    if kind == MessageType::ResponseToPartialStoreDelivery && !msg.process_card_bundles.is_empty() {
+        inner.push_str(&bundles_xml(&msg.process_card_bundles));
+    }
     if let Some(chunk) = &msg.chunk_information {
         // Java ChunkInformation.writeXML order: ChunkNumber, ChunkSize,
         // ReceivedChunks, TotalChunkNumbers, TotalMessageSize; the
@@ -860,7 +883,7 @@ fn entry_inner_xml(msg: &OutMessage, kind: MessageType) -> String {
             "<osci2017:ChunkInformation{attrs}></osci2017:ChunkInformation>"
         ));
     }
-    if !msg.process_card_bundles.is_empty() {
+    if !msg.process_card_bundles.is_empty() && kind != MessageType::ResponseToPartialStoreDelivery {
         inner.push_str(&bundles_xml(&msg.process_card_bundles));
     }
     if !kind.is_response() {
@@ -1060,12 +1083,14 @@ pub fn compose_xml(
             "{kind:?} requires a ContentPackage in the Body"
         )));
     }
-    // the reference PartialStoreDelivery.compose throws unless the body
-    // carries exactly one ContentContainer and no EncryptedData
+    // the reference PartialStoreDelivery.compose throws with
+    // EncryptedData present, and demands exactly one ContentContainer
+    // for blob chunks (infoOnly composes an empty ContentPackage) - so
+    // at most one container here
     if kind == MessageType::PartialStoreDelivery {
-        if msg.containers.len() != 1 {
+        if msg.containers.len() > 1 {
             return Err(ComposeError::Schema(format!(
-                "{kind:?} requires exactly one ContentContainer, got {}",
+                "{kind:?} allows at most one ContentContainer, got {}",
                 msg.containers.len()
             )));
         }
@@ -1088,6 +1113,24 @@ pub fn compose_xml(
         return Err(ComposeError::Schema(
             "FeatureDescription requires at least one supported feature".into(),
         ));
+    }
+    // the partial schemas make the FeatureDescription header mandatory
+    // (and the reference client always sends it on requests)
+    if msg.feature_description.is_none()
+        && matches!(
+            kind,
+            MessageType::PartialStoreDelivery
+                | MessageType::PartialFetchDelivery
+                | MessageType::ResponseToPartialStoreDelivery
+        )
+    {
+        return Err(ComposeError::Schema(format!(
+            "{kind:?} requires a FeatureDescription"
+        )));
+    }
+    // every responseTo* entry type requires Feedback
+    if kind.is_response() && msg.feedback.is_empty() {
+        return Err(ComposeError::Schema(format!("{kind:?} requires Feedback")));
     }
     if let Some(chunk) = &msg.chunk_information {
         check_chunk_shape(kind, chunk)?;
@@ -1350,12 +1393,34 @@ pub fn compose_xml(
 /// Write one ContentContainer element (ns decls, Id, Signature*,
 /// Content*) — the exact Java `writeXML` shape, and the plaintext byte
 /// source for content encryption.
+/// Escape a caller-supplied string for attribute interpolation (ids,
+/// content types, hrefs are public OutMessage fields - a quote would
+/// silently produce malformed wire XML).
+fn attr(value: &str) -> String {
+    let mut out = Vec::new();
+    crate::xml::writer::escape_attr(value, &mut out).ok();
+    String::from_utf8(out).unwrap_or_default()
+}
+
+/// Escape a caller-supplied string for element-text interpolation.
+fn escaped_text(value: &str) -> String {
+    let mut out = Vec::new();
+    escape_text(value, &mut out).ok();
+    String::from_utf8(out).unwrap_or_default()
+}
+
 pub fn write_container_xml<W: std::io::Write>(
     container: &OutContentContainer,
     w: &mut XmlWriter<W>,
 ) {
-    w.raw(format!("<osci:ContentContainer{NS_BLOCK} Id=\"{}\">", container.id).as_bytes())
-        .ok();
+    w.raw(
+        format!(
+            "<osci:ContentContainer{NS_BLOCK} Id=\"{}\">",
+            attr(&container.id)
+        )
+        .as_bytes(),
+    )
+    .ok();
     for content in &container.contents {
         match (&content.text, &content.href) {
             (Some(text), _) => {
@@ -1363,7 +1428,7 @@ pub fn write_container_xml<W: std::io::Write>(
                 // fixtures (`<osci:Content><osci:Base64Content
                 // Id="content0">...`)
                 w.raw(b"<osci:Content><osci:Base64Content Id=\"").ok();
-                w.raw(content.id.as_bytes()).ok();
+                w.raw(attr(&content.id).as_bytes()).ok();
                 w.raw(b"\">").ok();
                 w.raw(base64::encode(text.as_bytes()).as_bytes()).ok();
                 w.raw(b"</osci:Base64Content></osci:Content>").ok();
@@ -1371,16 +1436,20 @@ pub fn write_container_xml<W: std::io::Write>(
             (None, Some(href)) => {
                 w.raw(
                     format!(
-                        "<osci:Content Id=\"{}\" href=\"{href}\"></osci:Content>",
-                        content.id
+                        "<osci:Content Id=\"{}\" href=\"{}\"></osci:Content>",
+                        attr(&content.id),
+                        attr(href)
                     )
                     .as_bytes(),
                 )
                 .ok();
             }
             (None, None) => {
-                w.raw(format!("<osci:Content Id=\"{}\"></osci:Content>", content.id).as_bytes())
-                    .ok();
+                w.raw(
+                    format!("<osci:Content Id=\"{}\"></osci:Content>", attr(&content.id))
+                        .as_bytes(),
+                )
+                .ok();
             }
         }
     }
@@ -1419,7 +1488,7 @@ pub fn write_encrypted_attachment_xml<W: std::io::Write>(
     w.raw(b"</ds:MgmtData></ds:KeyInfo>").ok();
     w.raw(b"<xenc:CipherData><xenc:CipherReference URI=\"cid:")
         .ok();
-    w.raw(enc.ref_id.as_bytes()).ok();
+    w.raw(attr(&enc.ref_id).as_bytes()).ok();
     w.raw(
         b"\"><xenc:Transforms><ds:Transform Algorithm=\"http://www.w3.org/2000/09/xmldsig#base64\"></ds:Transform></xenc:Transforms></xenc:CipherReference></xenc:CipherData></xenc:EncryptedData>",
     )
@@ -1535,7 +1604,7 @@ pub fn write_encrypted_data_xml<W: std::io::Write>(enc: &OutEncryptedData, w: &m
                     b"<ds:RetrievalMethod Type=\"http://www.w3.org/2000/09/xmldsig#X509Data\" URI=\"#",
                 )
                 .ok();
-                w.raw(id.as_bytes()).ok();
+                w.raw(attr(id).as_bytes()).ok();
                 w.raw(b"\"></ds:RetrievalMethod>").ok();
             }
             KeyInfoRef::InlineCertDer(der) => {
@@ -1561,7 +1630,7 @@ pub fn write_encrypted_data_xml<W: std::io::Write>(enc: &OutEncryptedData, w: &m
     // CipherData: inline CipherValue (content) or CipherReference (transport)
     if let Some(cid) = &enc.cipher_reference {
         w.raw(b"<xenc:CipherData><xenc:CipherReference URI=\"").ok();
-        w.raw(cid.as_bytes()).ok();
+        w.raw(attr(cid).as_bytes()).ok();
         w.raw(
             b"\"><xenc:Transforms><ds:Transform Algorithm=\"http://www.w3.org/2000/09/xmldsig#base64\"></ds:Transform></xenc:Transforms></xenc:CipherReference></xenc:CipherData>",
         )

@@ -196,6 +196,13 @@ fn store_load_roundtrips_all_types() {
             total_message_size: Some(1),
             received_chunks: Vec::new(),
         });
+        m.feature_description = Some(osci_core::soap::FeatureDescription {
+            chunk_message_timeout: Some(60),
+            max_chunk_size: Some(1024),
+            max_message_size: Some(4096),
+            min_chunk_size: Some(128),
+            features: vec![("DisableBase64".into(), "1.2.0".into())],
+        });
         m.containers.push(OutContentContainer {
             id: "ChunkContentContainer".into(),
             contents: vec![OutContent {

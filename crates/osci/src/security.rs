@@ -70,6 +70,9 @@ pub struct SignatureResult {
     pub key_size_bits: Option<usize>,
     pub key_weak: Option<bool>,
     pub algorithm_outdated: Option<bool>,
+    /// DER of the verification certificate (identity pinning: compare
+    /// against a trusted set).
+    pub certificate_der: Option<Vec<u8>>,
 }
 
 impl SignatureResult {
@@ -102,12 +105,18 @@ pub struct DecryptedContent {
     pub plaintext: Vec<u8>,
 }
 
-/// Collect Id -> certificate for elements carrying X509Certificate data.
+/// Collect Id -> certificate for genuine certificate-entry elements
+/// (`<osci:*Certificate*>` header entries - binding the Id to the entry
+/// shape prevents planted elements elsewhere in the document from
+/// converting a dangling signature reference into a skipped one).
 fn collect_certificates(element: &Element, out: &mut HashMap<String, osci_crypto::Certificate>) {
     for child in element.elements() {
         let mut cert_data = Vec::new();
         collect_x509(child, &mut cert_data);
-        if let (Some(id), Some(der)) = (child.id_attr(), cert_data.first())
+        let is_cert_entry = child.local.starts_with("CipherCertificate")
+            || child.local.starts_with("SignatureCertificate");
+        if is_cert_entry
+            && let (Some(id), Some(der)) = (child.id_attr(), cert_data.first())
             && let Ok(cert) = osci_crypto::Certificate::from_der(der)
         {
             out.insert(id.to_string(), cert);
@@ -353,6 +362,7 @@ pub fn verify_document(
             key_size_bits: None,
             key_weak: None,
             algorithm_outdated: None,
+            certificate_der: None,
         };
         // weak-policy verdicts (report-only; Java pins the signature
         // date to the reference "actual date")
@@ -380,6 +390,7 @@ pub fn verify_document(
         };
         result.key_algorithm = Some(cert.key_algorithm().to_string());
         result.key_size_bits = Some(cert.key_size());
+        result.certificate_der = Some(cert.der().to_vec());
         result.key_weak = Some(osci_crypto::weak::is_weak_key(
             Some(osci_crypto::weak::actual_date()),
             cert.key_algorithm(),
@@ -734,7 +745,8 @@ pub fn encrypt_message_for(
     // session key + IV; encrypt the whole inner stream
     let session_key = osci_crypto::calc::create_sym_key(&config.content_cipher)
         .map_err(|e| SecurityError::Decrypt(e.to_string()))?;
-    let mut iv = vec![0u8; 12];
+    let mut iv = osci_crypto::calc::create_iv(&config.content_cipher, None)
+        .map_err(|e| SecurityError::Decrypt(e.to_string()))?;
     use rand::RngCore as _;
     rand::thread_rng().fill_bytes(&mut iv);
     // oneshot output is already [IV][ciphertext+tag]
@@ -862,13 +874,14 @@ pub fn decrypt_transport_message(
     let mgf = find_descendant_text(element, "MGF");
     let oaep_digest = find_descendant_text(element, "DigestMethod");
 
-    // wrapped key from the inline CipherValue, ciphertext from the
-    // referenced MIME part
+    // wrapped keys from the inline CipherValues (a multi-recipient
+    // envelope carries one EncryptedKey per reader - ours may sit in any
+    // position), ciphertext from the referenced MIME part
     let mut values = Vec::new();
     find_cipher_values(element, &mut values);
-    let wrapped_key = values
-        .first()
-        .ok_or_else(|| SecurityError::Decrypt("missing wrapped key".into()))?;
+    if values.is_empty() {
+        return Err(SecurityError::Decrypt("missing wrapped key".into()));
+    }
     let reference = find_cipher_reference(element)
         .ok_or_else(|| SecurityError::Decrypt("no CipherReference".into()))?;
     let cid = reference
@@ -890,58 +903,69 @@ pub fn decrypt_transport_message(
     }
 
     for decrypter in decrypters {
-        let session_key = match transport_uri.as_str() {
-            KEY_TRANSPORT_RSA_1_5 => decrypter.decrypt_pkcs1v15(wrapped_key),
-            _ => decrypter.decrypt_oaep(
-                wrapped_key,
-                mgf.as_deref()
-                    .unwrap_or("http://www.w3.org/2009/xmlenc11#mgf1sha256"),
-                oaep_digest
-                    .as_deref()
-                    .unwrap_or("http://www.w3.org/2001/04/xmlenc#sha256"),
-            ),
-        };
-        let Ok(session_key) = session_key else {
-            continue;
-        };
-        if session_key.len() != cipher.key_length() {
-            continue;
-        }
-
-        // Full candidate first; legacy blobs can carry trailing bytes
-        // after the PKCS#7 padding, so block-boundary truncations are
-        // tried from the longest down (the GCM tag / padding arbitrates).
-        for ciphertext in &candidates {
-            let mut dr = match DecryptReader::new(&ciphertext[..], cipher, &session_key) {
-                Ok(dr) => dr,
-                Err(_) => continue,
+        for wrapped_key in &values {
+            let session_key = match transport_uri.as_str() {
+                KEY_TRANSPORT_RSA_1_5 => decrypter.decrypt_pkcs1v15(wrapped_key),
+                _ => decrypter.decrypt_oaep(
+                    wrapped_key,
+                    mgf.as_deref()
+                        .unwrap_or("http://www.w3.org/2009/xmlenc11#mgf1sha256"),
+                    oaep_digest
+                        .as_deref()
+                        .unwrap_or("http://www.w3.org/2001/04/xmlenc#sha256"),
+                ),
             };
-            let mut inner = Vec::new();
-            if dr.read_to_end(&mut inner).is_ok()
-                && !inner.is_empty()
-                && (inner.starts_with(b"MIME-Version") || inner.starts_with(b"<?xml"))
-            {
-                return Ok(inner);
+            let Ok(session_key) = session_key else {
+                continue;
+            };
+            if session_key.len() != cipher.key_length() {
+                continue;
             }
-        }
 
-        // Legacy truncation fallback: for each base64-decoded candidate,
-        // try CBC stream lengths from the longest block boundary down.
-        // Only reached when the full-length attempts all failed.
-        for ciphertext in candidates.iter().rev() {
-            let blocks = ciphertext.len() / 16;
-            for keep_blocks in (1..blocks).rev() {
-                let ct = &ciphertext[..keep_blocks * 16];
-                let mut dr = match DecryptReader::new(ct, cipher, &session_key) {
+            // Full candidate first; legacy blobs can carry trailing bytes
+            // after the PKCS#7 padding, so block-boundary truncations are
+            // tried from the longest down (the GCM tag / padding arbitrates).
+            for ciphertext in &candidates {
+                let mut dr = match DecryptReader::new(&ciphertext[..], cipher, &session_key) {
                     Ok(dr) => dr,
                     Err(_) => continue,
                 };
                 let mut inner = Vec::new();
-                if dr.read_to_end(&mut inner).is_err() || inner.is_empty() {
-                    continue;
-                }
-                if inner.starts_with(b"MIME-Version") || inner.starts_with(b"<?xml") {
+                if dr.read_to_end(&mut inner).is_ok()
+                    && !inner.is_empty()
+                    && (inner.starts_with(b"MIME-Version") || inner.starts_with(b"<?xml"))
+                {
                     return Ok(inner);
+                }
+            }
+
+            // Legacy truncation fallback: CBC streams may carry trailing
+            // garbage after the PKCS#7-padded payload, so scan block
+            // boundaries from the longest down - but only for CBC ciphers
+            // (GCM framing is exact-length: [IV][ct][16B tag], trailing
+            // bytes are garbage by construction) and bounded to a suffix
+            // window, keeping the path O(len) instead of an unauthenticated
+            // quadratic decryption loop reachable from recorded responses
+            // (issue review: CPU-DoS amplifier).
+            if matches!(cipher, SymCipher::AesCbc { .. } | SymCipher::TripleDesCbc) {
+                const MAX_TRUNCATION_ATTEMPTS: usize = 256;
+                for ciphertext in candidates.iter().rev() {
+                    let blocks = ciphertext.len() / 16;
+                    let floor = blocks.saturating_sub(MAX_TRUNCATION_ATTEMPTS).max(1);
+                    for keep_blocks in (floor..blocks).rev() {
+                        let ct = &ciphertext[..keep_blocks * 16];
+                        let mut dr = match DecryptReader::new(ct, cipher, &session_key) {
+                            Ok(dr) => dr,
+                            Err(_) => continue,
+                        };
+                        let mut inner = Vec::new();
+                        if dr.read_to_end(&mut inner).is_err() || inner.is_empty() {
+                            continue;
+                        }
+                        if inner.starts_with(b"MIME-Version") || inner.starts_with(b"<?xml") {
+                            return Ok(inner);
+                        }
+                    }
                 }
             }
         }
@@ -949,6 +973,39 @@ pub fn decrypt_transport_message(
     Err(SecurityError::Decrypt(
         "no decrypter could open the transport envelope".into(),
     ))
+}
+
+/// Strict variant of [`decrypt_attachments`]: identical, but fails with
+/// `SecurityError::Decrypt` when any referenced attachment entry cannot
+/// be decrypted (the lenient variant silently drops it - a hostile
+/// intermediary could otherwise strip delivery content without an
+/// observable signal).
+pub fn decrypt_attachments_strict(
+    container_xml: &str,
+    attachments: &[(String, Vec<u8>)],
+) -> Result<Vec<DecryptedAttachment>, SecurityError> {
+    let lenient = decrypt_attachments(container_xml, attachments)?;
+    // count the referenced encrypted-attachment entries
+    let doc = parser::parse(container_xml).map_err(|e| SecurityError::Xml(e.to_string()))?;
+    let mut elements = Vec::new();
+    find_encrypted_data(&doc.root, &mut elements);
+    let referenced = elements
+        .iter()
+        .filter_map(|e| find_cipher_reference(e))
+        .filter_map(|r| r.strip_prefix("cid:").map(str::to_string))
+        .collect::<std::collections::BTreeSet<_>>();
+    let opened = lenient
+        .iter()
+        .map(|a| a.ref_id.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    for ref_id in referenced {
+        if !opened.contains(ref_id.as_str()) {
+            return Err(SecurityError::Decrypt(format!(
+                "attachment {ref_id} could not be decrypted"
+            )));
+        }
+    }
+    Ok(lenient)
 }
 
 /// Borrowing view over a loaded message for the decrypt helpers above.
@@ -1021,19 +1078,11 @@ pub fn decrypt_attachments(
         let Some(cipher) = SymCipher::from_uri(cipher_uri) else {
             continue;
         };
-        let iv_len = methods
-            .first()
-            .and_then(|m| {
-                m.elements()
-                    .find(|e| e.local == "IvLength")
-                    .map(|e| e.text())
-            })
-            .and_then(|v| v.trim().parse().ok())
-            .unwrap_or(16);
+        // the attacker-controlled IvLength hint is intentionally not used
+        // to slice the stream: the IV length is implied by the cipher
         if key.len() != cipher.key_length() {
             continue;
         }
-        let _ = iv_len;
         let mut candidates = vec![part.clone()];
         if let Ok(decoded) = osci_core::helper::base64::decode(&String::from_utf8_lossy(part))
             && decoded != *part

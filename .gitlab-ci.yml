@@ -32,6 +32,9 @@ xsd-validate:
   image: rust:1.98-slim
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends python3-minimal python3-lxml
+    # the gate silently skips when the validator import fails - fail the
+    # job instead of passing green with zero validations
+    - python3 -c "import lxml"
   script:
     - cargo test --locked -p osci --test xsd_gate -- --nocapture
   cache:
@@ -47,7 +50,9 @@ dependency-audit:
   allow_failure: true
   script:
     - cargo install cargo-audit --version 0.21.2 --locked --quiet
-    - cargo audit --locked || true
+    # allow_failure: true already makes this non-blocking; without the
+    # dropped || true even tool-level failures would pass green
+    - cargo audit --locked
   cache:
     key: audit
     paths: [.cargo-cache/registry]
@@ -65,7 +70,7 @@ oracle-test:
     - cd reference/osci-bib-java && mvn -B verify; cd ../..
     - ./scripts/extract-testcorpus.sh
     - ./scripts/build-oracle.sh
-    - OSCI_JAVA=/usr/bin/java cargo test --workspace
+    - OSCI_JAVA=/usr/bin/java cargo test --locked --workspace
   cache:
     key: oracle-test
     paths: [.cargo-cache/registry, target/, reference/]

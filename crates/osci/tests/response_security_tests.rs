@@ -566,3 +566,38 @@ fn ignore_policy_reports_but_does_not_enforce() {
     assert!(!report.all_valid(), "the corrupted signature is reported");
     assert!(!report.signatures[0].signature_valid);
 }
+
+/// Issue #6 review follow-up: with a trusted signer pinned, a valid
+/// signature from ANY OTHER certificate does not satisfy the verifying
+/// policies - signature math alone is not identity.
+#[test]
+fn trusted_signer_pinning_rejects_foreign_signatures() {
+    let intermediary = SigningIntermediary::new();
+    let mut dialog = Dialog::new(Box::new(LoopbackTransport::new(Box::new(intermediary))))
+        .with_trusted_response_signers(vec![cert_der("bob_signature_4096.pem")]);
+    dialog
+        .send(&mut init_request(), &[], "MIME_boundary")
+        .unwrap();
+    dialog.set_signature_policy(SignaturePolicy::Require);
+
+    let mut out = fetch_request();
+    let error = dialog.send(&mut out, &[], "MIME_boundary").unwrap_err();
+    assert!(
+        matches!(error, DialogError::Verification(_)),
+        "expected verification error, got {error:?}"
+    );
+
+    // pinning the actual signer accepts the same response
+    let intermediary = SigningIntermediary::new();
+    let mut dialog = Dialog::new(Box::new(LoopbackTransport::new(Box::new(intermediary))))
+        .with_trusted_response_signers(vec![cert_der("alice_signature_4096.pem")]);
+    dialog
+        .send(&mut init_request(), &[], "MIME_boundary")
+        .unwrap();
+    dialog.set_signature_policy(SignaturePolicy::Require);
+
+    let mut out = fetch_request();
+    let response = dialog.send(&mut out, &[], "MIME_boundary").unwrap();
+    assert_eq!(response.kind, Some(MessageType::ResponseToFetchDelivery));
+    assert!(dialog.last_response_report().unwrap().all_valid());
+}

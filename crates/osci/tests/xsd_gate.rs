@@ -659,12 +659,24 @@ fn rule_less_fetch_delivery_is_schema_valid() {
     validate_composed("rule-less-FetchDelivery", &msg);
 }
 
-/// Issue #8: the exact partial-store shape rosci ships live (MessageId
-/// entry, chunk attributes, six reference features, DesiredLanguages,
-/// blob container) validates against the normative schema.
+/// Issue #8: the exact partial-store shape rosci ships live - mirroring
+/// the pinned `partial_store_delivery_live_shape` test in osci-core
+/// (chunk attrs 1/64/2/128, container ChunkContentContainer with
+/// href="cid:chunk-1", blob part text/8-bit/64 bytes, six reference
+/// features, DesiredLanguages, MessageId entry) - validates against the
+/// normative schema. Keep the two shapes in sync.
 #[test]
 fn partial_store_delivery_live_shape_is_schema_valid() {
     let mut msg = legal_message(MessageType::PartialStoreDelivery);
+    msg.entry_inner =
+        Some("<osci:MessageId>bXNn</osci:MessageId><osci:Subject>S</osci:Subject>".into());
+    msg.chunk_information = Some(osci_core::message::ChunkInformation {
+        chunk_number: 1,
+        chunk_size: Some(64),
+        total_chunk_numbers: Some(2),
+        total_message_size: Some(128),
+        received_chunks: Vec::new(),
+    });
     msg.feature_description = Some(osci_core::soap::FeatureDescription {
         chunk_message_timeout: Some(60),
         max_chunk_size: Some(1024),
@@ -679,6 +691,20 @@ fn partial_store_delivery_live_shape_is_schema_valid() {
             ("Support96Bit12ByteIV".into(), "1.9.0".into()),
         ],
     });
-    msg.entry_inner = Some("<osci:MessageId>bXNn</osci:MessageId>".into());
+    // legal_message already carries the single ContentContainer - reshape
+    // it to the chunk-blob form
+    msg.containers[0].id = "ChunkContentContainer".into();
+    msg.containers[0].contents = vec![OutContent {
+        id: "ChunkContent".into(),
+        text: None,
+        href: Some("cid:chunk-1".into()),
+    }];
+    msg.attachments
+        .push(osci_core::message::compose::OutAttachment {
+            content_id: "chunk-1".into(),
+            content_type: "text".into(),
+            base64_encoding: false,
+            data: vec![0x41; 64],
+        });
     validate_composed("partial-store-live-shape", &msg);
 }
