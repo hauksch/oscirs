@@ -80,9 +80,6 @@ Every layer is gated against the pinned reference:
   (`scripts/xsd-validate.sh`, lxml/libxml2) validates composed traffic of
   every kind, signed and content-/transport-encrypted variants included)
 - [x] StoredMessage load/store, passive-recipient DialogFinder
-- [x] Chunking (partial store/fetch, both wire shapes; ReceivedChunks as
-  the Java list form - space separated, `-1` sentinel, omitted where the
-  schema prohibits it - and the Java attribute order). Send side:
   `Dialog::compose_signed_stream` composes+signs the full delivery
   without transmitting (issue #4) - the caller splits the stream and
   ships each blob as a PartialStoreDelivery attachment; rule-less fetch
@@ -93,8 +90,18 @@ Every layer is gated against the pinned reference:
   carry the reference writer's MIME headers (base64 | 8-bit CTE,
   Content-Length); DesiredLanguages is mandatory on requests (issue #8
   - its absence drew live 9300 on partial deliveries); the
-  FeatureDescription rides with the Java header Id quirk
-  ("featuredescriptio") and is transport-signed like the reference
+  FeatureDescription is transport-signed like the reference
+- [x] **Compose oracle**: the Java differential harness composes a
+  signed (and signed+transport-encrypted) PartialStoreDelivery with the
+  REAL 2.6.1 reference library (`CryptoSpike composepartial`) and the
+  test diffs oscirs's wire output structurally - element/attribute/
+  digest-value equality against the reference writer, and the oracle's
+  encrypted envelope is opened by our reader. Reference-parity notes it
+  pinned: partial NIC = cipher-originator + cipher-addressee +
+  signature-originator (the ClientSignature's RetrievalMethod target),
+  the chunk blob is a SIGNED cid reference without a Transforms block,
+  cert entry Ids are `{role}_{use}_{sha256-hex}`, the reference appends
+  `_Partial` to the MessageId
 - [x] MessageMetaData extension header (parse **and compose**: custom
   headers ride canonically with a spliced `Id` in the Java custom-header
   slot, after the FeatureDescription, and become transport-signature

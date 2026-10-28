@@ -72,6 +72,9 @@ public final class CryptoSpike {
       case "canonize":
         cmdCanonize();
         break;
+      case "composepartial":
+        cmdComposePartial(corpus, args.length > 1 ? args[1] : "plain");
+        break;
       case "validate":
         cmdValidate(args.length > 1 ? args[1] : "../testcorpus/xsd");
         break;
@@ -79,7 +82,8 @@ public final class CryptoSpike {
         cmdLoadVerify(corpus);
         break;
       default:
-        System.err.println("usage: CryptoSpike vectors|verify|unwrap|canonize|validate [xsddir]|loadverify");
+        System.err.println(
+            "usage: CryptoSpike vectors|verify|unwrap|canonize|validate [xsddir]|loadverify|composepartial [plain|encrypted]");
         System.exit(2);
     }
   }
@@ -338,4 +342,21 @@ public final class CryptoSpike {
 
   private CryptoSpike() {
   }
+
+
+
+  /**
+   * Compose-oracle for the chunked-send differential (issue #8 handoff):
+   * drives the REAL 2.6.1 reference library to serialize a signed
+   * (optionally transport-encrypted) PartialStoreDelivery with
+   * deterministic inputs. See ComposeOracle (same package as the
+   * reference library - it touches package-private serialization).
+   */
+  private static void cmdComposePartial(String corpus, String mode) throws Exception {
+    byte[] wire = de.osci.osci12.messagetypes.ComposeOracle.composePartial(
+        corpus, mode.equals("encrypted"));
+    System.out.write(wire);
+    System.out.flush();
+  }
+
 }

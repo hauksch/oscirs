@@ -191,9 +191,16 @@ fn build_signature_xml(
         };
         out.push_str("<ds:Reference URI=\"");
         out.push_str(uri);
-        out.push_str("\"><ds:Transforms><ds:Transform Algorithm=\"");
-        out.push_str(C14N_TRANSFORM);
-        out.push_str("\"></ds:Transform></ds:Transforms><ds:DigestMethod Algorithm=\"");
+        // cid: references (attachments) digest the transfer-decoded bytes
+        // directly - the reference writer emits NO Transforms on them
+        if !uri.starts_with("cid:") {
+            out.push_str("\"><ds:Transforms><ds:Transform Algorithm=\"");
+            out.push_str(C14N_TRANSFORM);
+            out.push_str("\"></ds:Transform></ds:Transforms>");
+        } else {
+            out.push_str("\">");
+        }
+        out.push_str("<ds:DigestMethod Algorithm=\"");
         out.push_str(digest);
         out.push_str("\"></ds:DigestMethod><ds:DigestValue>");
         out.push_str(&base64::encode(&value));

@@ -621,7 +621,12 @@ fn chunked_send_round() {
             base64_encoding: false,
             data: blob.to_vec(),
         });
-        let response = dialog.send(&mut out, &[], "MIME_boundary").unwrap();
+        // the chunk blob is a signed cid: reference (the live-accepted
+        // fixture's SignedInfo carries cid:ChunkBlobStoreDelivery)
+        let attachments = vec![(format!("ChunkBlob{i}"), blob.to_vec())];
+        let response = dialog
+            .send(&mut out, &attachments, "MIME_boundary")
+            .unwrap();
         assert_eq!(
             response.kind,
             Some(MessageType::ResponseToPartialStoreDelivery),

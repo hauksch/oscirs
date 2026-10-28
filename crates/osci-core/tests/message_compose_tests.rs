@@ -463,6 +463,11 @@ fn partial_store_delivery_live_shape() {
             challenge: Some("Y2hhbGxlbmdl".into()),
         },
         desired_languages: Some("de".into()),
+        // live-accepted ground truth (testcorpus/PartialStoreDelivery.osci):
+        // a SIGNED partial carries THREE entries - the ClientSignature's
+        // RetrievalMethod points at the originator signature certificate,
+        // so dropping it (as rosci did per an older pin) dangles the
+        // signature reference and the exchange is rejected
         non_intermediary_certificates: vec![
             OutCertEntry {
                 role: CertRole::Originator,
@@ -475,6 +480,12 @@ fn partial_store_delivery_live_shape() {
                 use_: CertUse::Cipher,
                 id: "addressee_cipher_test".into(),
                 der: first_cert_der("bob_cipher_4096.pem"),
+            },
+            OutCertEntry {
+                role: CertRole::Originator,
+                use_: CertUse::Signature,
+                id: "originator_signature_test".into(),
+                der: first_cert_der("alice_signature_4096.pem"),
             },
         ],
         // quality flags unset: the creation header must STILL be emitted
