@@ -124,7 +124,11 @@ impl MockIntermediary for ScriptedIntermediary {
         // control-block protocol: response answers the request's
         // challenge, echoes sequence + conversation, provides a new
         // challenge; the intermediary assigns the conversation id with
-        // the InitDialog response (the schema requires it there)
+        // the InitDialog response (the schema requires it there). The
+        // challenge is distinct per round so the client-side chaining
+        // (Response answers the PREVIOUS response's challenge) is
+        // observable.
+        let round = self.seen.lock().unwrap().len();
         let mut response_block = ControlBlock {
             conversation_id: request_block
                 .conversation_id
@@ -132,9 +136,7 @@ impl MockIntermediary for ScriptedIntermediary {
                 .or_else(|| Some("4711".into())),
             sequence_number: request_block.sequence_number,
             response: request_block.challenge.clone(),
-            challenge: Some(osci_core::helper::base64::encode(
-                b"intermediary-next-challen",
-            )),
+            challenge: Some(intermediary_challenge(round)),
         };
         if *self.break_challenge_once.lock().unwrap()
             || self.seen.lock().unwrap().len() >= *self.break_from_round.lock().unwrap()
@@ -300,6 +302,12 @@ impl osci_transport::Transport for ProbeTransport {
 
 type Seen = Arc<Mutex<Vec<(MessageType, ControlBlock)>>>;
 type Mailbox = Arc<Mutex<Vec<Vec<u8>>>>;
+
+/// The intermediary's challenge for round `round` (1-based, distinct
+/// per exchange).
+fn intermediary_challenge(round: usize) -> String {
+    osci_core::helper::base64::encode(format!("intermediary-next-challen{round}").as_bytes())
+}
 
 fn transport() -> (LoopbackTransport, Seen, Mailbox) {
     let seen = Arc::new(Mutex::new(Vec::new()));
@@ -545,18 +553,24 @@ fn signed_round_trips_verify_on_the_wire() {
 }
 
 /// EFFI chunked send (issue #4): the full signed delivery is composed
-/// once via `compose_signed_stream` (dialog state advances exactly once),
-/// split into chunk blobs, and each blob ships as a PartialStoreDelivery
-/// with the blob as its single MIME attachment - the reassembly feedback
-/// (0801) comes with the intermediary's chunk echo.
+/// once via `compose_signed_stream` on a throwaway dialog (a compose
+/// consumes one sequence step - the live dialog's steps belong to the
+/// partials), split into chunk blobs, and each blob ships as a
+/// PartialStoreDelivery with the blob as its single MIME attachment -
+/// the reassembly feedback (0801) comes with the intermediary's chunk
+/// echo.
 #[test]
 fn chunked_send_round() {
+    // the full stream is composed on a throwaway dialog (see below)
+    let (full_transport, _full_seen, _full_mailbox) = transport();
     let (transport, seen, _mailbox) = transport();
     let mut dialog = Dialog::new(Box::new(transport))
         .with_signer(Box::new(signer()), "originator_signature".into());
     init_dialog(&mut dialog);
 
-    // the full signed delivery (signed via the dialog's signer; not sent)
+    // the full signed delivery, composed on a THROWAWAY dialog: the
+    // compose consumes one sequence step, and the live dialog's steps
+    // belong to the partials
     let mut full = unsigned_out(MessageType::StoreDelivery, None);
     full.entry_inner =
         Some("<osci:MessageId>bXNn</osci:MessageId><osci:Subject>S</osci:Subject>".into());
@@ -572,7 +586,9 @@ fn chunked_send_round() {
     // the full stream carries its own MIME framing - the chunk messages
     // must use a different boundary so the blob bytes cannot collide
     // with the outer multipart markers
-    let stream = dialog
+    let mut full_dialog = Dialog::new(Box::new(full_transport))
+        .with_signer(Box::new(signer()), "originator_signature".into());
+    let stream = full_dialog
         .compose_signed_stream(&mut full, &[], "FULL_boundary")
         .expect("full delivery composed and signed");
 
@@ -641,6 +657,118 @@ fn chunked_send_round() {
         );
     }
     assert_eq!(seen.lock().unwrap().len(), 3, "init + two chunks");
+}
+
+/// The live 9400 handoff: the chunked dialog opens with GetMessageId
+/// (no InitDialog) and every partial advances the sequencing exactly
+/// like the reference request constructors - Response answers the
+/// manager's PREVIOUS response challenge, the outbound Challenge is
+/// fresh random per request (never a replay of the manager's), and the
+/// SequenceNumber increments per request (opener 0, partials 1, 2).
+#[test]
+fn chunked_dialog_sequencing_matches_the_reference() {
+    let (transport, seen, _mailbox) = transport();
+    let mut dialog = Dialog::new(Box::new(transport))
+        .with_signer(Box::new(signer()), "originator_signature".into());
+
+    // the live flow's opener: GetMessageId with a fresh challenge and
+    // sequence 0, no Response, no ConversationId
+    let mut get_id = unsigned_out(MessageType::GetMessageId, None);
+    let response = dialog.send(&mut get_id, &[], "MIME_boundary").unwrap();
+    assert_eq!(response.kind, Some(MessageType::ResponseToGetMessageId));
+
+    let get_id_challenge = {
+        let seen = seen.lock().unwrap();
+        let (kind, block) = &seen[0];
+        assert_eq!(*kind, MessageType::GetMessageId);
+        assert_eq!(block.sequence_number, Some(0), "opener sequence");
+        assert_eq!(block.response, None, "opener carries no Response");
+        assert_eq!(block.conversation_id, None, "opener carries no dialog id");
+        block.challenge.clone().unwrap()
+    };
+
+    // partial requests shaped like the live flow: MessageId entry (no
+    // Subject), FeatureDescription, one container referencing the blob
+    let partial_out = |i: usize, blob: &[u8]| {
+        let mut out = unsigned_out(MessageType::PartialStoreDelivery, None);
+        out.entry_inner = Some("<osci:MessageId>bXNn</osci:MessageId>".into());
+        out.chunk_information = Some(osci_core::message::ChunkInformation {
+            chunk_number: i as i64,
+            chunk_size: Some(blob.len() as i64),
+            total_chunk_numbers: Some(2),
+            total_message_size: Some(2 * blob.len() as i64),
+            received_chunks: Vec::new(),
+        });
+        out.feature_description = Some(osci_core::soap::FeatureDescription {
+            chunk_message_timeout: Some(60),
+            max_chunk_size: Some(1024),
+            max_message_size: Some(4096),
+            min_chunk_size: Some(128),
+            features: vec![
+                ("PartialMessageTransmission".into(), "1.8.0".into()),
+                ("Support96Bit12ByteIV".into(), "1.9.0".into()),
+            ],
+        });
+        out.containers.push(OutContentContainer {
+            id: "ChunkContentContainer".into(),
+            contents: vec![OutContent {
+                id: "ChunkContent".into(),
+                href: Some(format!("cid:ChunkBlob{i}")),
+                text: None,
+            }],
+            encrypted_attachments: Vec::new(),
+        });
+        out.attachments.push(OutAttachment {
+            content_id: format!("ChunkBlob{i}"),
+            content_type: "application/octet-stream".into(),
+            base64_encoding: false,
+            data: blob.to_vec(),
+        });
+        out
+    };
+
+    let mut previous_challenge = get_id_challenge;
+    for i in 1..=2 {
+        let blob = vec![b'A'; 64];
+        let attachments = vec![(format!("ChunkBlob{i}"), blob.clone())];
+        let mut out = partial_out(i, &blob);
+        let response = dialog
+            .send(&mut out, &attachments, "MIME_boundary")
+            .unwrap();
+        assert_eq!(
+            response.kind,
+            Some(MessageType::ResponseToPartialStoreDelivery),
+            "chunk {i}"
+        );
+
+        let seen = seen.lock().unwrap();
+        let (kind, block) = &seen[i]; // round i+1 was the GetId
+        assert_eq!(*kind, MessageType::PartialStoreDelivery);
+        assert_eq!(block.sequence_number, Some(i as u32), "chunk {i} sequence");
+        assert_eq!(
+            block.conversation_id.as_deref(),
+            Some("4711"),
+            "chunk {i} dialog id adopted from the opener response"
+        );
+        // the outbound Response answers the manager's previous challenge
+        assert_eq!(
+            block.response.as_deref(),
+            Some(intermediary_challenge(i).as_str()),
+            "chunk {i} Response chains the previous response challenge"
+        );
+        // the outbound Challenge is fresh: not ours before, not the
+        // manager's
+        let challenge = block.challenge.clone().unwrap();
+        assert_ne!(challenge, previous_challenge, "chunk {i} fresh challenge");
+        assert_ne!(
+            challenge,
+            intermediary_challenge(i),
+            "chunk {i} challenge is not a manager replay"
+        );
+        drop(seen);
+        previous_challenge = challenge;
+    }
+    assert_eq!(seen.lock().unwrap().len(), 3, "opener + two chunks");
 }
 
 /// Issue #7 part 1: feedback 3800 ("more deliveries pending after a

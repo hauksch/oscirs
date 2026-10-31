@@ -191,17 +191,55 @@ impl Dialog {
     }
 
     /// Prepare the outbound control block for the next message of the
-    /// dialog (mirrors the reference sequencing: InitDialog carries no
-    /// sequence number; afterwards the counter increments).
+    /// dialog - port of the reference request constructors
+    /// (StoreDelivery/PartialStoreDelivery/GetMessageId/...): the
+    /// outbound Response answers the challenge currently held by the
+    /// dialog state (the manager's last response challenge; unset on
+    /// the dialog opener), the outbound Challenge is FRESH RANDOM on
+    /// every request (never a replay of the manager's), and the
+    /// sequence counter advances by one per request (the state starts
+    /// unset, so the opener carries 0). The manager checks all three
+    /// per exchange - a repeated sequence number or a stale response
+    /// is the dialog error 9400.
+    ///
+    /// Divergences kept deliberately: InitDialog resets the sequencing
+    /// fields (reference InitDialog); Accept/ProcessDelivery keep the
+    /// adopted challenge/response verbatim like the reference (they
+    /// reset conversation/sequence state only, which the per-kind
+    /// masking handles); ResponseTo* kinds are not driven through the
+    /// dialog client.
     fn prepare_outbound(&mut self, kind: MessageType) {
-        if self.control_block.challenge.is_none() {
-            self.control_block.challenge = Some(self.fresh_challenge());
-        }
-        if !matches!(kind, MessageType::InitDialog)
-            && osci_core::message::compose::control_block_allows_sequence(kind)
-            && self.control_block.sequence_number.is_none()
-        {
-            self.control_block.sequence_number = Some(0);
+        match kind {
+            MessageType::InitDialog => {
+                self.control_block.challenge = Some(self.fresh_challenge());
+                self.control_block.response = None;
+                self.control_block.conversation_id = None;
+                self.control_block.sequence_number = None;
+            }
+            MessageType::AcceptDelivery
+            | MessageType::ProcessDelivery
+            | MessageType::ResponseToInitDialog
+            | MessageType::ResponseToExitDialog
+            | MessageType::ResponseToGetMessageId
+            | MessageType::ResponseToStoreDelivery
+            | MessageType::ResponseToFetchDelivery
+            | MessageType::ResponseToAcceptDelivery
+            | MessageType::ResponseToProcessDelivery
+            | MessageType::ResponseToForwardDelivery
+            | MessageType::ResponseToMediateDelivery
+            | MessageType::ResponseToFetchProcessCard
+            | MessageType::ResponseToPartialStoreDelivery
+            | MessageType::ResponseToPartialFetchDelivery => {}
+            _ => {
+                // answer-then-freshen order matters: the response takes
+                // the challenge before it is replaced
+                self.control_block.response = self.control_block.challenge.take();
+                self.control_block.challenge = Some(self.fresh_challenge());
+                if osci_core::message::compose::control_block_allows_sequence(kind) {
+                    self.control_block.sequence_number =
+                        Some(self.control_block.sequence_number.map_or(0, |n| n + 1));
+                }
+            }
         }
     }
 
@@ -313,7 +351,8 @@ impl Dialog {
     /// Everything [`Dialog::send`] does up to (excluding) the
     /// transport send: prepare the control block, compose, sign
     /// (when a signer is set) and apply transport-level encryption.
-    /// The dialog state advances exactly once, like a normal send.
+    /// The dialog state advances exactly once, like a normal send:
+    /// one sequence step and one challenge round are consumed.
     ///
     /// This is the seam for EFFI message chunking (issue #4): the
     /// returned stream of the full delivery is what gets split into
@@ -321,6 +360,10 @@ impl Dialog {
     /// PartialStoreDelivery carrying the blob as its single attachment)
     /// and ship each through [`Dialog::send`]. Do not `send` the same
     /// `OutMessage` afterwards; its control block was already adopted.
+    /// Compose the full stream on a THROWAWAY [`Dialog`] (same signer,
+    /// never used for a send): the chunked flow's sequence steps belong
+    /// to the live dialog's partials, and a compose on the live dialog
+    /// would burn one step plus a challenge the manager never saw.
     pub fn compose_signed_stream(
         &mut self,
         out: &mut OutMessage,
