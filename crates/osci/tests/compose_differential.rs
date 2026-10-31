@@ -413,15 +413,292 @@ fn encrypted_oracle_partial_opens_and_matches() {
     );
 }
 
-#[test]
-fn debug_parse_dump() {
-    let src = std::fs::read_to_string("/tmp/ours_composed.xml").unwrap();
-    match osci_core::xml::parser::parse(&src) {
-        Ok(_) => eprintln!("PARSE OK ({} bytes)", src.len()),
-        Err(e) => {
-            eprintln!("PARSE ERR: {e}");
-            let i = src.find("<soap:Envelope").unwrap();
-            eprintln!("ENV TAG: {:?}", &src[i..i + 120]);
-        }
+/// Sort the <ds:Reference>...</ds:Reference> blocks inside the
+/// <ds:SignedInfo> region by URI: the reference client collects them in
+/// JVM HashMap order (random per run) while the SET of references and
+/// their digests are the contract.
+fn sort_signed_info_references(xml: &str) -> String {
+    let open = "<ds:SignedInfo>";
+    let close = "</ds:SignedInfo>";
+    let si = match xml.find(open) {
+        Some(p) => p + open.len(),
+        None => return xml.to_string(),
+    };
+    let si_end = match xml[si..].find(close) {
+        Some(q) => si + q,
+        None => return xml.to_string(),
+    };
+    let region = &xml[si..si_end];
+    let mut blocks: Vec<(String, String)> = Vec::new();
+    let mut prefix = String::new();
+    let mut rest = region;
+    while let Some(p) = rest.find("<ds:Reference") {
+        let e = rest[p..]
+            .find("</ds:Reference>")
+            .map(|q| p + q + "</ds:Reference>".len())
+            .unwrap_or(rest.len());
+        let block = &rest[p..e];
+        let uri_start = block.find("URI=\"").map(|q| q + 5).unwrap_or(0);
+        let uri_end = block[uri_start..]
+            .find('"')
+            .map(|q| uri_start + q)
+            .unwrap_or(uri_start);
+        blocks.push((block[uri_start..uri_end].to_string(), block.to_string()));
+        prefix.push_str(&rest[..p]);
+        rest = &rest[e..];
     }
+    blocks.sort_by(|x, y| x.0.cmp(&y.0));
+    let mut sorted = prefix;
+    for (_, block) in &blocks {
+        sorted.push_str(block);
+    }
+    let mut out = String::with_capacity(xml.len());
+    out.push_str(&xml[..si]);
+    out.push_str(&sorted);
+    out.push_str(&xml[si_end..]);
+    out
+}
+
+/// Issue #7/#8 follow-up (rosci handoff): the manager reassembles the
+/// chunk blobs into the FULL StoreDelivery wire stream - which on rosci's
+/// stack is written by oscirs. Byte-for-byte differential against the
+/// reference writer's `writeMessage` output for the same inputs: same
+/// 300_001-byte binary attachment (with an embedded boundary-lookalike
+/// sequence), same control block, same signature key. Only the MIME
+/// boundary token and the RSA-PSS signature value are volatile.
+#[test]
+fn composed_delivery_matches_the_reference_writer() {
+    if !oracle_available() {
+        eprintln!("skipping: java oracle not built");
+        return;
+    }
+    let oracle = {
+        let root = workspace_root();
+        let classpath = std::fs::read_to_string(root.join("oracle/build/classpath.txt")).unwrap();
+        let classpath = format!(
+            "{}:{}",
+            root.join("oracle/build").display(),
+            classpath.trim()
+        );
+        let out = Command::new(root.join("tools/jdk11/bin/java"))
+            .current_dir(&root)
+            .env("OSCI_CORPUS", corpus())
+            .arg("-cp")
+            .arg(&classpath)
+            .arg("osci.oracle.CryptoSpike")
+            .arg("composedelivery")
+            .output()
+            .expect("spawn java");
+        assert!(out.status.success(), "oracle composeDelivery failed");
+        out.stdout
+    };
+
+    // oscirs side: identical inputs
+    let blob = {
+        let mut b = vec![b'A'; 300_001];
+        let lookalike = b"\r\n--MIME_boundary\r\nContent-Type: text/xml";
+        b[150_000..150_000 + lookalike.len()].copy_from_slice(lookalike);
+        b
+    };
+    let msg = OutMessage {
+        kind: Some(MessageType::StoreDelivery),
+        control_block: ControlBlock {
+            conversation_id: Some("1516031926756497464904932674077".into()),
+            sequence_number: Some(1),
+            response: Some("cmVzcG9uc2U=".into()),
+            challenge: Some("Y2hhbGxlbmdl".into()),
+        },
+        desired_languages: Some("de".into()),
+        non_intermediary_certificates: vec![
+            OutCertEntry {
+                role: CertRole::Originator,
+                use_: CertUse::Cipher,
+                id: cert_entry_id("originator", "cipher", "carol_cipher_4096.pem"),
+                der: cert_der("carol_cipher_4096.pem"),
+            },
+            OutCertEntry {
+                role: CertRole::Addressee,
+                use_: CertUse::Cipher,
+                id: cert_entry_id("addressee", "cipher", "bob_cipher_4096.pem"),
+                der: cert_der("bob_cipher_4096.pem"),
+            },
+            OutCertEntry {
+                role: CertRole::Originator,
+                use_: CertUse::Signature,
+                id: cert_entry_id("originator", "signature", "alice_signature_4096.pem"),
+                der: cert_der("alice_signature_4096.pem"),
+            },
+        ],
+        feature_description: Some(osci_core::soap::FeatureDescription {
+            chunk_message_timeout: None,
+            max_chunk_size: None,
+            max_message_size: None,
+            min_chunk_size: None,
+            features: vec![
+                ("DisableBase64".into(), "1.2.0".into()),
+                ("OAEPEncryption".into(), "1.6.0".into()),
+                ("SHA3HashAlgo".into(), "1.6.3".into()),
+                ("GCMPaddingModus".into(), "1.7.0".into()),
+                ("PartialMessageTransmission".into(), "1.8.0".into()),
+                ("Support96Bit12ByteIV".into(), "1.9.0".into()),
+            ],
+        }),
+        // the reference writer base64-encodes the oscid into the
+        // MessageId element content (oscid "bXNn" -> base64 -> base64);
+        // entry_inner is written verbatim
+        entry_inner: Some(
+            "<osci:MessageId>WWxoT2JnPT0=</osci:MessageId><osci:Subject>S</osci:Subject>".into(),
+        ),
+        containers: vec![OutContentContainer {
+            // the reference setChunkBlob counter convention
+            id: "contentcontainer0".into(),
+            contents: vec![OutContent {
+                id: "content0".into(),
+                text: None,
+                href: Some("cid:ChunkBlobStoreDelivery".into()),
+            }],
+            encrypted_attachments: Vec::new(),
+        }],
+        attachments: vec![OutAttachment {
+            content_id: "ChunkBlobStoreDelivery".into(),
+            content_type: "application/octet-stream".into(),
+            base64_encoding: false,
+            data: blob.clone(),
+        }],
+        ..Default::default()
+    };
+
+    let stream = compose_message(&msg, "MIME_boundary").unwrap();
+    let xml = xml_part_of(&stream);
+    let signer = osci_crypto::software::RsaSigner::from_pem_dump(
+        corpus()
+            .join("certs")
+            .join("alice_signature_4096.pem")
+            .to_str()
+            .unwrap(),
+        None,
+    )
+    .unwrap();
+    let attachments = vec![("ChunkBlobStoreDelivery".to_string(), blob.clone())];
+    let signed = osci::sign::sign_message_xml(
+        &xml,
+        &osci::sign::SignParams {
+            signer: &signer,
+            method: None,
+            digest: None,
+            certificate_id: cert_entry_id("originator", "signature", "alice_signature_4096.pem"),
+            attachments: &attachments,
+            header_element: None,
+        },
+    )
+    .unwrap();
+    // splice the signed XML back, replacing the original XML part bytes
+    // (compose_signed_stream's replace_xml_part flow)
+    let marker = "Content-ID: <osci@message>\r\n\r\n";
+    let pos = stream
+        .windows(marker.len())
+        .position(|w| w == marker.as_bytes())
+        .unwrap()
+        + marker.len();
+    let xml_end = stream[pos..]
+        .windows(4)
+        .position(|w| w == b"\r\n--")
+        .map(|p| pos + p)
+        .unwrap_or(stream.len());
+    let mut ours = stream[..pos].to_vec();
+    ours.extend_from_slice(signed.as_bytes());
+    ours.extend_from_slice(&stream[xml_end..]);
+
+    // normalize volatile bits and compare the XML parts byte-for-byte:
+    // boundary tokens, the PSS signature value (salted), and the
+    // SignedInfo reference ORDER (JVM HashMap-random per run) are
+    // normalized; everything else - element layout, digests, framing
+    // bytes around them - must match
+    // the reference writer's boundary is randomized - normalize the
+    // tokens, sort the SignedInfo references, mask the PSS signature
+    // value, then compare the XML parts byte-for-byte
+    let oracle_boundary: Vec<u8> = {
+        let head = String::from_utf8_lossy(&oracle);
+        let start = head.find("boundary=").unwrap() + "boundary=".len();
+        let end = head[start..].find(';').unwrap() + start;
+        head[start..end].as_bytes().to_vec()
+    };
+    let mask_and_norm = |xml: &str, boundary: &[u8]| -> Vec<u8> {
+        let sorted = sort_signed_info_references(xml);
+        let mut out = sorted.into_bytes();
+        let mut i = 0;
+        while let Some(p) = out[i..]
+            .windows(boundary.len())
+            .position(|w| w == boundary)
+            .map(|p| p + i)
+        {
+            out.splice(p..p + boundary.len(), b"MIME_boundary".iter().copied());
+            i = p + "MIME_boundary".len();
+        }
+        let marker = b"<ds:SignatureValue>";
+        if let Some(p) = out.windows(marker.len()).position(|w| w == marker) {
+            let start = p + marker.len();
+            let close = b"</ds:SignatureValue>";
+            if let Some(e) = out.windows(close.len()).position(|w| w == close) {
+                for byte in &mut out[start..e] {
+                    *byte = b'S';
+                }
+            }
+        }
+        out
+    };
+    let oracle_xml = xml_part_of(&oracle);
+    let ours_xml = xml_part_of(&ours);
+    let a = mask_and_norm(&oracle_xml, &oracle_boundary);
+    let b = mask_and_norm(&ours_xml, b"MIME_boundary");
+
+    // MIME part headers must match byte-for-byte on both sides: the XML
+    // part (first Content-ID) and the attachment part (last Content-ID,
+    // where the Content-Length semantics live)
+    let part_headers = |stream: &[u8], last: bool| -> String {
+        let find_id = |hay: &[u8]| {
+            if last {
+                hay.windows(11)
+                    .rposition(|w| w == b"Content-ID:")
+                    .expect("part with Content-ID")
+            } else {
+                hay.windows(11)
+                    .position(|w| w == b"Content-ID:")
+                    .expect("part with Content-ID")
+            }
+        };
+        let id = find_id(stream);
+        let start = stream[..id]
+            .windows(13)
+            .rposition(|w| w == b"Content-Type:")
+            .expect("part headers");
+        let end = stream[id..]
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .map(|q| id + q + 2)
+            .unwrap();
+        String::from_utf8_lossy(&stream[start..end]).into_owned()
+    };
+    assert_eq!(
+        part_headers(&ours, false),
+        part_headers(&oracle, false),
+        "XML part headers diverge"
+    );
+    assert_eq!(
+        part_headers(&ours, true),
+        part_headers(&oracle, true),
+        "attachment part headers diverge"
+    );
+
+    let len = a.len().max(b.len());
+    let first = (0..len).find(|&i| a.get(i) != b.get(i));
+    assert!(
+        first.is_none(),
+        "XML parts diverge from the reference writer, first at {:?} (len oracle={} oscirs={}): oracle={:?} oscirs={:?}",
+        first,
+        a.len(),
+        b.len(),
+        first.map(|i| &a[i.saturating_sub(80)..(i + 80).min(a.len())]),
+        first.map(|i| &b[i.saturating_sub(80)..(i + 80).min(b.len())]),
+    );
 }

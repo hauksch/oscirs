@@ -143,6 +143,8 @@ pub fn sign_message_xml(xml: &str, params: &SignParams<'_>) -> Result<String, Si
         .sign(&signed_info, &method)
         .map_err(|e| SignError::Signing(e.to_string()))?;
 
+    // the reference writer emits the signature value with the OSCI
+    // Base64 dialect (LF after every 76 chars)
     let encoded = base64::encode(&signature);
     // single occurrence: the placeholder is written by this function and
     // must be unique in the document
@@ -168,13 +170,17 @@ fn build_signature_xml(
     let header_element = params.header_element.unwrap_or("ClientSignature");
     let id = header_element.to_lowercase();
     let mut out = String::new();
+    // byte layout mirrors OSCISignature.writeXML / OSCISignatureReference
+    // .writeXML of the reference library: the newlines inside SignedInfo
+    // are text content and therefore signature-covered - the exact bytes
+    // matter for wire parity
     out.push_str(&format!(
-        "<osci:{header_element} Id=\"{id}\" soap:actor=\"http://schemas.xmlsoap.org/soap/actor/next\" soap:mustUnderstand=\"1\"><ds:Signature><ds:SignedInfo><ds:CanonicalizationMethod Algorithm=\""
+        "<osci:{header_element} Id=\"{id}\" soap:actor=\"http://schemas.xmlsoap.org/soap/actor/next\" soap:mustUnderstand=\"1\"><ds:Signature><ds:SignedInfo>\n<ds:CanonicalizationMethod Algorithm=\""
     ));
     out.push_str(C14N_TRANSFORM);
-    out.push_str("\"></ds:CanonicalizationMethod><ds:SignatureMethod Algorithm=\"");
+    out.push_str("\"></ds:CanonicalizationMethod>\n<ds:SignatureMethod Algorithm=\"");
     out.push_str(method);
-    out.push_str("\"></ds:SignatureMethod>");
+    out.push_str("\"></ds:SignatureMethod>\n");
     for uri in references {
         let value = if placeholder {
             Vec::new()
@@ -191,20 +197,19 @@ fn build_signature_xml(
         };
         out.push_str("<ds:Reference URI=\"");
         out.push_str(uri);
+        out.push_str("\">\n");
         // cid: references (attachments) digest the transfer-decoded bytes
         // directly - the reference writer emits NO Transforms on them
         if !uri.starts_with("cid:") {
-            out.push_str("\"><ds:Transforms><ds:Transform Algorithm=\"");
+            out.push_str("<ds:Transforms>\n<ds:Transform Algorithm=\"");
             out.push_str(C14N_TRANSFORM);
-            out.push_str("\"></ds:Transform></ds:Transforms>");
-        } else {
-            out.push_str("\">");
+            out.push_str("\"></ds:Transform>\n</ds:Transforms>\n");
         }
         out.push_str("<ds:DigestMethod Algorithm=\"");
         out.push_str(digest);
-        out.push_str("\"></ds:DigestMethod><ds:DigestValue>");
+        out.push_str("\"></ds:DigestMethod>\n<ds:DigestValue>");
         out.push_str(&base64::encode(&value));
-        out.push_str("</ds:DigestValue></ds:Reference>");
+        out.push_str("</ds:DigestValue>\n</ds:Reference>\n");
     }
     out.push_str("</ds:SignedInfo><ds:SignatureValue>PHMBOLFU5fQ==</ds:SignatureValue><ds:KeyInfo><ds:RetrievalMethod URI=\"#");
     out.push_str(&params.certificate_id);

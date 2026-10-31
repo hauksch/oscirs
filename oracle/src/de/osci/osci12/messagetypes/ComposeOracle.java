@@ -123,6 +123,84 @@ public final class ComposeOracle {
     return out.toByteArray();
   }
 
+  /**
+   * Full-delivery compose oracle (rosci chunked-send handoff): the
+   * manager reassembles the chunk blobs into the complete
+   * StoreDelivery wire stream - which on rosci's stack is written by
+   * oscirs. This drives the REAL 2.6.1 library to serialize the same
+   * full delivery (signed, one ContentContainer whose Content
+   * references a large binary attachment, deterministic control block
+   * and content bytes incl. embedded boundary-lookalike sequences) so
+   * the Rust test can diff the MIME framing byte-for-byte.
+   *
+   * mode: unused for now (the plain signed delivery is what gets
+   * chunked; transport encryption wraps it identically to the partial).
+   */
+  public static byte[] composeDelivery(String corpus) throws Exception {
+    de.osci.osci12.roles.Originator originator = new de.osci.osci12.roles.Originator(
+        new de.osci.osci12.samples.impl.crypto.PKCS12Signer(
+            Files.newInputStream(Paths.get(corpus, "certs", "alice_signature_4096.p12")),
+            KEYSTORE_PASSWORD),
+        new de.osci.osci12.samples.impl.crypto.PKCS12Decrypter(
+            Files.newInputStream(Paths.get(corpus, "certs", "carol_cipher_4096.p12")),
+            KEYSTORE_PASSWORD));
+    X509Certificate intermedCipherCert = de.osci.helper.Tools.createCertificate(
+        Files.newInputStream(Paths.get(corpus, "certs", "osci_manager_cipher_4096.cer")));
+    X509Certificate bobCipherCert = de.osci.helper.Tools.createCertificate(
+        Files.newInputStream(Paths.get(corpus, "certs", "bob_cipher_4096.cer")));
+    de.osci.osci12.roles.Intermed intermed = new de.osci.osci12.roles.Intermed(
+        null, intermedCipherCert, new java.net.URI("http://localhost/osci"));
+    de.osci.osci12.roles.Addressee addressee =
+        new de.osci.osci12.roles.Addressee(null, bobCipherCert);
+
+    de.osci.osci12.common.DialogHandler dialog =
+        new de.osci.osci12.common.DialogHandler(originator, intermed, new NullTransport());
+    dialog.setLanguageList("de");
+    dialog.setCreateSignatures(true);
+    dialog.setEncryption(false);
+
+    de.osci.osci12.soapheader.ControlBlockH pre = dialog.getControlblock();
+    pre.setChallenge(
+        Base64.getEncoder().encodeToString("Y2hhbGxlbmdl".getBytes(StandardCharsets.UTF_8)));
+
+    // deterministic 300_001-byte binary content (multiple-of-3 edge plus
+    // padding char) with an embedded boundary-lookalike sequence
+    byte[] blob = new byte[300_001];
+    Arrays.fill(blob, (byte) 'A');
+    byte[] lookalike = "\r\n--MIME_boundary\r\nContent-Type: text/xml".getBytes(StandardCharsets.UTF_8);
+    System.arraycopy(lookalike, 0, blob, 150_000, Math.min(lookalike.length, blob.length - 150_000));
+
+    de.osci.osci12.messageparts.Attachment attachment =
+        new de.osci.osci12.messageparts.Attachment(
+            new java.io.ByteArrayInputStream(blob), "ChunkBlobStoreDelivery");
+    de.osci.osci12.messageparts.ContentContainer container =
+        new de.osci.osci12.messageparts.ContentContainer();
+    de.osci.osci12.messageparts.Content content =
+        new de.osci.osci12.messageparts.Content(attachment);
+    container.addContent(content);
+
+    StoreDelivery delivery =
+        new StoreDelivery(dialog, addressee,
+            Base64.getEncoder().encodeToString("bXNn".getBytes(StandardCharsets.UTF_8)));
+    delivery.setSubject("S");
+    delivery.addContentContainer(container);
+
+    // the ctor re-randomizes the control block - re-pin the fixed values
+    de.osci.osci12.soapheader.ControlBlockH cb = dialog.getControlblock();
+    cb.setConversationID("1516031926756497464904932674077");
+    cb.setSequenceNumber(1);
+    // raw values: ControlBlockH.writeXML writes them verbatim (matching
+    // oscirs, which writes the given strings unencoded)
+    cb.setChallenge("Y2hhbGxlbmdl");
+    cb.setResponse("cmVzcG9uc2U=");
+
+    delivery.sign();
+
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    delivery.writeMessage(out);
+    return out.toByteArray();
+  }
+
   /** Transport placeholder - never used (nothing is transmitted). */
   private static final class NullTransport
       implements de.osci.osci12.extinterfaces.TransportI {

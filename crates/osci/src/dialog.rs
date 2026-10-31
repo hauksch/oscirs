@@ -338,6 +338,24 @@ impl Dialog {
         let xml =
             xml_part(&stream).ok_or_else(|| DialogError::Composition("no xml part".into()))?;
 
+        // the reference client signs EVERY attachment on the message (the
+        // cid: references are mandatory there) - derive the signature set
+        // from the wire attachments themselves so an omitted caller param
+        // cannot ship an unsigned attachment (reassembly rejects it)
+        let mut signing_attachments: Vec<(String, Vec<u8>)> = out
+            .attachments
+            .iter()
+            .map(|a| (a.content_id.clone(), a.data.clone()))
+            .collect();
+        for (id, data) in attachments {
+            if !signing_attachments
+                .iter()
+                .any(|(existing, _)| existing == id)
+            {
+                signing_attachments.push((id.clone(), data.clone()));
+            }
+        }
+
         let signed_xml = match &self.signer {
             Some(signer) => {
                 let certificate_id = self
@@ -351,7 +369,7 @@ impl Dialog {
                         method: None,
                         digest: None,
                         certificate_id,
-                        attachments,
+                        attachments: &signing_attachments,
                         header_element: Some(osci_core::message::compose::signature_header_name(
                             kind,
                         )),

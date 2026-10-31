@@ -1018,7 +1018,15 @@ pub fn compose_message(msg: &OutMessage, boundary: &str) -> Result<Vec<u8>, Comp
         out.extend_from_slice(format!("\r\n--{boundary}\r\n").as_bytes());
         // Java Attachment.writeXML part headers: Content-Type,
         // Content-Transfer-Encoding (base64 | 8-bit - NOT binary),
-        // Content-ID, Content-Length (the raw data length)
+        // Content-ID, Content-Length (the length of the part body AS
+        // WRITTEN: the encoded form for base64 parts)
+        let encoded;
+        let body: &[u8] = if att.base64_encoding {
+            encoded = base64::encode(&att.data);
+            encoded.as_bytes()
+        } else {
+            &att.data
+        };
         out.extend_from_slice(
             format!(
                 "Content-Type: {}\r\nContent-Transfer-Encoding: {}\r\nContent-ID: <{}>\r\nContent-Length: {}\r\n\r\n",
@@ -1029,15 +1037,11 @@ pub fn compose_message(msg: &OutMessage, boundary: &str) -> Result<Vec<u8>, Comp
                     "8-bit"
                 },
                 att.content_id,
-                att.data.len()
+                body.len()
             )
             .as_bytes(),
         );
-        if att.base64_encoding {
-            out.extend_from_slice(base64::encode(&att.data).as_bytes());
-        } else {
-            out.extend_from_slice(&att.data);
-        }
+        out.extend_from_slice(body);
     }
     out.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
     xml.clear();

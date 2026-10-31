@@ -75,6 +75,10 @@ public final class CryptoSpike {
       case "composepartial":
         cmdComposePartial(corpus, args.length > 1 ? args[1] : "plain");
         break;
+      case "composedelivery":
+        System.out.write(de.osci.osci12.messagetypes.ComposeOracle.composeDelivery(corpus));
+        System.out.flush();
+        break;
       case "validate":
         cmdValidate(args.length > 1 ? args[1] : "../testcorpus/xsd");
         break;
