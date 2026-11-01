@@ -79,6 +79,10 @@ public final class CryptoSpike {
         System.out.write(de.osci.osci12.messagetypes.ComposeOracle.composeDelivery(corpus));
         System.out.flush();
         break;
+      case "chunkedexchange":
+        de.osci.osci12.messagetypes.ComposeOracle.chunkedExchange(
+            corpus, args.length > 1 ? args[1] : "/tmp/chunked-exchange");
+        break;
       case "validate":
         cmdValidate(args.length > 1 ? args[1] : "../testcorpus/xsd");
         break;

@@ -595,17 +595,18 @@ fn chunked_send_round() {
     // split the serialized delivery into two chunk blobs
     let half = stream.len() / 2;
     let blobs = [&stream[..half], &stream[half..]];
-    let total = stream.len() as i64;
 
     for (i, blob) in blobs.iter().enumerate() {
         let mut out = unsigned_out(MessageType::PartialStoreDelivery, None);
-        out.entry_inner =
-            Some("<osci:MessageId>bXNn</osci:MessageId><osci:Subject>S</osci:Subject>".into());
+        // the reference partial dialect: MessageId = base64(<oscid>
+        // + "_Partial"), no Subject, the fixed blob ids (every chunk
+        // carries ChunkBlobStoreDelivery), ChunkInformation sizes in KB
+        out.entry_inner = Some("<osci:MessageId>bXNnX1BhcnRpYWw=</osci:MessageId>".into());
         out.chunk_information = Some(osci_core::message::ChunkInformation {
             chunk_number: (i + 1) as i64,
-            chunk_size: Some(blob.len() as i64),
+            chunk_size: Some(1000),
             total_chunk_numbers: Some(blobs.len() as i64),
-            total_message_size: Some(total),
+            total_message_size: Some((stream.len() / 1024) as i64),
             received_chunks: Vec::new(),
         });
         out.feature_description = Some(osci_core::soap::FeatureDescription {
@@ -626,20 +627,20 @@ fn chunked_send_round() {
             id: "ChunkContentContainer".into(),
             contents: vec![OutContent {
                 id: "ChunkContent".into(),
-                href: Some(format!("cid:ChunkBlob{i}")),
+                href: Some("cid:ChunkBlobStoreDelivery".into()),
                 text: None,
             }],
             encrypted_attachments: Vec::new(),
         });
         out.attachments.push(OutAttachment {
-            content_id: format!("ChunkBlob{i}"),
+            content_id: "ChunkBlobStoreDelivery".into(),
             content_type: "application/octet-stream".into(),
             base64_encoding: false,
             data: blob.to_vec(),
         });
         // the chunk blob is a signed cid: reference (the live-accepted
         // fixture's SignedInfo carries cid:ChunkBlobStoreDelivery)
-        let attachments = vec![(format!("ChunkBlob{i}"), blob.to_vec())];
+        let attachments = vec![("ChunkBlobStoreDelivery".to_string(), blob.to_vec())];
         let response = dialog
             .send(&mut out, &attachments, "MIME_boundary")
             .unwrap();
@@ -687,16 +688,17 @@ fn chunked_dialog_sequencing_matches_the_reference() {
         block.challenge.clone().unwrap()
     };
 
-    // partial requests shaped like the live flow: MessageId entry (no
-    // Subject), FeatureDescription, one container referencing the blob
+    // partial requests shaped like the live flow: MessageId =
+    // base64(<oscid> + "_Partial"), no Subject, FeatureDescription, one
+    // container referencing the blob by the fixed reference ids
     let partial_out = |i: usize, blob: &[u8]| {
         let mut out = unsigned_out(MessageType::PartialStoreDelivery, None);
-        out.entry_inner = Some("<osci:MessageId>bXNn</osci:MessageId>".into());
+        out.entry_inner = Some("<osci:MessageId>bXNnX1BhcnRpYWw=</osci:MessageId>".into());
         out.chunk_information = Some(osci_core::message::ChunkInformation {
             chunk_number: i as i64,
-            chunk_size: Some(blob.len() as i64),
+            chunk_size: Some(1000),
             total_chunk_numbers: Some(2),
-            total_message_size: Some(2 * blob.len() as i64),
+            total_message_size: Some((2 * blob.len() as i64) / 1024),
             received_chunks: Vec::new(),
         });
         out.feature_description = Some(osci_core::soap::FeatureDescription {
@@ -713,13 +715,13 @@ fn chunked_dialog_sequencing_matches_the_reference() {
             id: "ChunkContentContainer".into(),
             contents: vec![OutContent {
                 id: "ChunkContent".into(),
-                href: Some(format!("cid:ChunkBlob{i}")),
+                href: Some("cid:ChunkBlobStoreDelivery".into()),
                 text: None,
             }],
             encrypted_attachments: Vec::new(),
         });
         out.attachments.push(OutAttachment {
-            content_id: format!("ChunkBlob{i}"),
+            content_id: "ChunkBlobStoreDelivery".into(),
             content_type: "application/octet-stream".into(),
             base64_encoding: false,
             data: blob.to_vec(),
@@ -730,7 +732,7 @@ fn chunked_dialog_sequencing_matches_the_reference() {
     let mut previous_challenge = get_id_challenge;
     for i in 1..=2 {
         let blob = vec![b'A'; 64];
-        let attachments = vec![(format!("ChunkBlob{i}"), blob.clone())];
+        let attachments = vec![("ChunkBlobStoreDelivery".to_string(), blob.clone())];
         let mut out = partial_out(i, &blob);
         let response = dialog
             .send(&mut out, &attachments, "MIME_boundary")

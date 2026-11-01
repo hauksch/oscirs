@@ -364,6 +364,20 @@ impl Dialog {
     /// never used for a send): the chunked flow's sequence steps belong
     /// to the live dialog's partials, and a compose on the live dialog
     /// would burn one step plus a challenge the manager never saw.
+    ///
+    /// The sanctioned chunked flow (reference `PartialOneWayMessage`
+    /// sample, verified exchange-by-exchange by the Java oracle's
+    /// `chunkedexchange` command) is ONE explicit dialog:
+    /// InitDialog -> GetMessageId -> PartialStoreDelivery x N ->
+    /// ExitDialog. The InitDialog establishes the dialog session the
+    /// manager resolves the partials' ConversationId against - a GetId
+    /// without a preceding InitDialog leaves no session and the
+    /// partials fail with the dialog error 9400 regardless of their
+    /// control block. The partial dialect: MessageId =
+    /// base64(`<oscid>_Partial`), no Subject, the blob attached with
+    /// the fixed ids ChunkContentContainer / ChunkContent /
+    /// ChunkBlobStoreDelivery, and ChunkInformation sizes in KB
+    /// (see [`osci_core::message::ChunkInformation`]).
     pub fn compose_signed_stream(
         &mut self,
         out: &mut OutMessage,

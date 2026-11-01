@@ -227,11 +227,20 @@ pub struct ContentPackage {
 /// `osci2017:ChunkInformation` of partial deliveries. Store side carries
 /// the total chunk count and message size; fetch side may carry the
 /// number of already-received chunks instead.
+///
+/// Size values are KILOBYTES, not bytes: the reference client splits at
+/// `ChunkSize * 1024` bytes and reports `TotalMessageSize` as
+/// `stream.len() / 1024` (`ChunkHelper`, `PartialOneWayMessage` sample),
+/// and the live intermediary's EFFI checks read them as KB too (e.g.
+/// 9903 "chunk below minimum"). Values are written verbatim; the caller
+/// converts.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChunkInformation {
     pub chunk_number: i64,
+    /// Chunk size in KB (each chunk blob is `ChunkSize * 1024` bytes).
     pub chunk_size: Option<i64>,
     pub total_chunk_numbers: Option<i64>,
+    /// Total delivery size in KB (`full_stream.len() / 1024`).
     pub total_message_size: Option<i64>,
     /// The received chunk numbers (Java `List<Integer>`); written
     /// space-separated, `-1` when empty (the Java sentinel for "none").
