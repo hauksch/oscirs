@@ -11,6 +11,11 @@ pub mod dialog;
 pub mod security;
 pub mod sign;
 
+/// The exact oscirs build an integrator runs: the crate version plus the
+/// git rev the build was made from — `0.1.0+<rev>`, or `+unknown` outside
+/// a git tree.
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("OSCIRS_GIT_REV"));
+
 // Facade re-exports: the daily-driver types from the inner crates.
 pub use osci_core::helper::dates::{format_iso8601, parse_iso8601};
 pub use osci_core::message::compose::{
