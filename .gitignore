@@ -18,3 +18,8 @@ oracle/build/
 # Local python venv for the XSD gate validator (scripts/xsd-validate.sh)
 .venv-xsd/
 __pycache__/
+live-probe/
+oracle-captures/
+oracle/build/
+reference/
+tools/

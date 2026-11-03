@@ -135,6 +135,23 @@ impl Dialog {
         self
     }
 
+    /// Enable transport encryption mid-dialog (or turn it off with
+    /// `None`). The reference client sends its InitDialog PLAIN and only
+    /// envelopes the messages after the manager's first response — some
+    /// intermediaries key the per-session transport mode off the first
+    /// exchange, so the envelope state must be switchable at that
+    /// boundary.
+    pub fn set_transport_encryption(
+        &mut self,
+        recipient_cert: Option<Certificate>,
+        config: crate::security::EncryptConfig,
+    ) {
+        self.transport_encryption = recipient_cert.map(|recipient_cert| TransportEncryption {
+            recipient_cert,
+            config,
+        });
+    }
+
     /// Keys for opening transport-encrypted responses (the client's own
     /// cipher certificates): when a response arrives as a
     /// SOAPMessageEncrypted envelope, `send` unwraps it before parsing.
@@ -371,7 +388,10 @@ impl Dialog {
         let request_stream = self.compose_signed_stream(out, attachments, boundary)?;
         // Wire tracing for integrators debugging dialog state against a
         // real intermediary (OSCIRS_TRACE=1): the control block actually
-        // composed onto the wire, then the one that came back.
+        // composed onto the wire, then the one that came back. With
+        // OSCIRS_TRACE_DIR=<dir>, every request stream is additionally
+        // written to <dir>/<n>-<kind>.osci for byte-level diffing (the
+        // same shape the Java oracle's captures use).
         if std::env::var_os("OSCIRS_TRACE").is_some() {
             eprintln!(
                 "oscirs: outbound {:?} response={:?} challenge={:?} conversation={:?} sequence={:?}",
@@ -381,6 +401,15 @@ impl Dialog {
                 out.control_block.conversation_id,
                 out.control_block.sequence_number,
             );
+        }
+        if let Some(dir) = std::env::var_os("OSCIRS_TRACE_DIR") {
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            static SEQ: AtomicUsize = AtomicUsize::new(0);
+            let n = SEQ.fetch_add(1, Ordering::Relaxed);
+            let kind = format!("{:?}", out.kind.unwrap_or(MessageType::StoreDelivery));
+            let path = std::path::PathBuf::from(&dir).join(format!("{n}-{kind}.osci"));
+            let _ = std::fs::write(&path, &request_stream);
+            eprintln!("oscirs: request stream dumped to {}", path.display());
         }
 
         let response_bytes = self
