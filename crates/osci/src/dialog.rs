@@ -74,6 +74,14 @@ pub struct Dialog {
     /// Verification report of the last response (when the policy
     /// verifies).
     last_response_report: Option<VerificationReport>,
+    /// Whether this dialog was established by an InitDialog sent through
+    /// it. Explicit dialogs carry the persistent dialog state
+    /// (ConversationId, Response echo, incrementing SequenceNumber);
+    /// implicit dialogs (everything opened by a non-Init request, e.g.
+    /// a GetMessageId) reset the control block per request instead —
+    /// reference `DialogHandler.resetControlBlock`, live-verified
+    /// against gov.test.osci.de.
+    explicit_dialog: bool,
 }
 
 /// One content-encryption request for [`Dialog::send_encrypted`].
@@ -102,6 +110,7 @@ impl Dialog {
             trusted_response_signers: Vec::new(),
             signature_policy: SignaturePolicy::default(),
             last_response_report: None,
+            explicit_dialog: false,
         }
     }
 
@@ -192,15 +201,28 @@ impl Dialog {
 
     /// Prepare the outbound control block for the next message of the
     /// dialog - port of the reference request constructors
-    /// (StoreDelivery/PartialStoreDelivery/GetMessageId/...): the
-    /// outbound Response answers the challenge currently held by the
-    /// dialog state (the manager's last response challenge; unset on
-    /// the dialog opener), the outbound Challenge is FRESH RANDOM on
+    /// (StoreDelivery/PartialStoreDelivery/GetMessageId/...). Two
+    /// dialects, both per the reference library:
+    ///
+    /// IMPLICIT dialog (no InitDialog went through this Dialog): every
+    /// request constructor first calls `DialogHandler.resetControlBlock`
+    /// (ControlBlockH back to its defaults) before setting its own
+    /// values - each request STANDS ALONE: a fresh random Challenge, no
+    /// Response, no ConversationId, sequence at the -1 sentinel (the
+    /// message carries 0). The manager keys implicit exchanges without
+    /// a client-declared ConversationId; sending adopted state anyway
+    /// is the dialog error 9400 ("ConversationId oder SequenceNumber
+    /// oder Response nicht korrekt") on gov.test.osci.de.
+    ///
+    /// EXPLICIT dialog (an InitDialog was sent through this Dialog):
+    /// the outbound Response answers the challenge currently held by
+    /// the dialog state (the manager's last response challenge; unset
+    /// on the dialog opener), the outbound Challenge is FRESH RANDOM on
     /// every request (never a replay of the manager's), and the
     /// sequence counter advances by one per request (the state starts
-    /// unset, so the opener carries 0). The manager checks all three
-    /// per exchange - a repeated sequence number or a stale response
-    /// is the dialog error 9400.
+    /// at the -1 sentinel, so the opener carries 0). The manager
+    /// checks all three per exchange - a repeated sequence number or a
+    /// stale response is the dialog error 9400.
     ///
     /// Divergences kept deliberately: InitDialog resets the sequencing
     /// fields (reference InitDialog); Accept/ProcessDelivery keep the
@@ -230,6 +252,15 @@ impl Dialog {
             | MessageType::ResponseToFetchProcessCard
             | MessageType::ResponseToPartialStoreDelivery
             | MessageType::ResponseToPartialFetchDelivery => {}
+            _ if !self.explicit_dialog => {
+                // implicit: resetControlBlock + the ctor's own values —
+                // nothing of the previous round survives
+                self.control_block = ControlBlock::default();
+                self.control_block.challenge = Some(self.fresh_challenge());
+                if osci_core::message::compose::control_block_allows_sequence(kind) {
+                    self.control_block.sequence_number = Some(0);
+                }
+            }
             _ => {
                 // answer-then-freshen order matters: the response takes
                 // the challenge before it is replaced
@@ -262,6 +293,15 @@ impl Dialog {
     /// challenge, echo the sequence number and conversation id, and carry
     /// the next challenge.
     pub fn check_control_block(&mut self, response: &ControlBlock) -> Result<(), DialogError> {
+        if std::env::var_os("OSCIRS_TRACE").is_some() {
+            eprintln!(
+                "oscirs: inbound  response={:?} challenge={:?} conversation={:?} sequence={:?}",
+                response.response,
+                response.challenge,
+                response.conversation_id,
+                response.sequence_number,
+            );
+        }
         let detail = |what: &str| DialogError::WrongControlBlock(what.to_string());
         // The adopted values are composed into the next (signed) request -
         // reject anything that is not well-formed protocol data before it
@@ -329,6 +369,19 @@ impl Dialog {
         boundary: &str,
     ) -> Result<OsciMessage, DialogError> {
         let request_stream = self.compose_signed_stream(out, attachments, boundary)?;
+        // Wire tracing for integrators debugging dialog state against a
+        // real intermediary (OSCIRS_TRACE=1): the control block actually
+        // composed onto the wire, then the one that came back.
+        if std::env::var_os("OSCIRS_TRACE").is_some() {
+            eprintln!(
+                "oscirs: outbound {:?} response={:?} challenge={:?} conversation={:?} sequence={:?}",
+                out.kind,
+                out.control_block.response,
+                out.control_block.challenge,
+                out.control_block.conversation_id,
+                out.control_block.sequence_number,
+            );
+        }
 
         let response_bytes = self
             .transport
@@ -345,7 +398,18 @@ impl Dialog {
             }
             None => stored,
         };
-        self.check_response(&stored)
+        let response = self.check_response(&stored)?;
+        if out.kind == Some(MessageType::InitDialog) {
+            // The reference pins the post-Init state in
+            // ResponseToInitDialog: the held sequence is forced back to
+            // the -1 sentinel (the InitResponse's own value is not part
+            // of the exchange count), and the dialog is explicit from
+            // here on — every following message carries the persistent
+            // dialog state instead of standing alone.
+            self.explicit_dialog = true;
+            self.control_block.sequence_number = None;
+        }
+        Ok(response)
     }
 
     /// Everything [`Dialog::send`] does up to (excluding) the
