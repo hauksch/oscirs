@@ -11,10 +11,10 @@ base64 = "0.23.1"
 osci-core = { path = "../osci-core" }
 osci-crypto = { path = "../osci-crypto" }
 osci-transport = { path = "../osci-transport" }
-rand = "0.10"
+rand = "0.8"
 thiserror = "2.0.21"
 
 [dev-dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
-p384 = { version = "0.14", features = ["pkcs8", "pem"] }
+p384 = { version = "0.13", features = ["pkcs8", "pem"] }
 test-utils = { path = "../test-utils" }
