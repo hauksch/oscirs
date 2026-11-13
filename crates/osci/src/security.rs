@@ -901,6 +901,9 @@ pub fn decrypt_transport_message(
     {
         candidates.push(decoded);
     }
+    // IV length per the written hint, legacy 16 when the hint is absent
+    // (pre-Korrigenda-7 peers), always trying both lengths when unclear
+    let iv_lengths = gcm_iv_lengths(find_iv_length_hint(element));
 
     for decrypter in decrypters {
         for wrapped_key in &values {
@@ -925,17 +928,24 @@ pub fn decrypt_transport_message(
             // Full candidate first; legacy blobs can carry trailing bytes
             // after the PKCS#7 padding, so block-boundary truncations are
             // tried from the longest down (the GCM tag / padding arbitrates).
-            for ciphertext in &candidates {
-                let mut dr = match DecryptReader::new(&ciphertext[..], cipher, &session_key) {
-                    Ok(dr) => dr,
-                    Err(_) => continue,
-                };
-                let mut inner = Vec::new();
-                if dr.read_to_end(&mut inner).is_ok()
-                    && !inner.is_empty()
-                    && (inner.starts_with(b"MIME-Version") || inner.starts_with(b"<?xml"))
-                {
-                    return Ok(inner);
+            for iv_len in iv_lengths {
+                for ciphertext in &candidates {
+                    let mut dr = match DecryptReader::new_with_iv_len(
+                        &ciphertext[..],
+                        cipher,
+                        &session_key,
+                        *iv_len,
+                    ) {
+                        Ok(dr) => dr,
+                        Err(_) => continue,
+                    };
+                    let mut inner = Vec::new();
+                    if dr.read_to_end(&mut inner).is_ok()
+                        && !inner.is_empty()
+                        && (inner.starts_with(b"MIME-Version") || inner.starts_with(b"<?xml"))
+                    {
+                        return Ok(inner);
+                    }
                 }
             }
 
@@ -1078,8 +1088,8 @@ pub fn decrypt_attachments(
         let Some(cipher) = SymCipher::from_uri(cipher_uri) else {
             continue;
         };
-        // the attacker-controlled IvLength hint is intentionally not used
-        // to slice the stream: the IV length is implied by the cipher
+        // IV length per the written hint, legacy 16 when the hint is
+        // absent (pre-Korrigenda-7 writers) — the GCM tag arbitrates
         if key.len() != cipher.key_length() {
             continue;
         }
@@ -1089,20 +1099,24 @@ pub fn decrypt_attachments(
         {
             candidates.push(decoded);
         }
-        for ciphertext in &candidates {
-            let mut plain = Vec::new();
-            let mut dr = match DecryptReader::new(&ciphertext[..], cipher, &key) {
-                Ok(dr) => dr,
-                Err(_) => continue,
-            };
-            if dr.read_to_end(&mut plain).is_err() || plain.is_empty() {
-                continue;
+        let iv_lengths = gcm_iv_lengths(find_iv_length_hint(element));
+        'iv: for iv_len in iv_lengths {
+            for ciphertext in &candidates {
+                let mut plain = Vec::new();
+                let mut dr =
+                    match DecryptReader::new_with_iv_len(&ciphertext[..], cipher, &key, *iv_len) {
+                        Ok(dr) => dr,
+                        Err(_) => continue,
+                    };
+                if dr.read_to_end(&mut plain).is_err() || plain.is_empty() {
+                    continue;
+                }
+                out.push(DecryptedAttachment {
+                    ref_id: ref_id.to_string(),
+                    plaintext: plain,
+                });
+                break 'iv;
             }
-            out.push(DecryptedAttachment {
-                ref_id: ref_id.to_string(),
-                plaintext: plain,
-            });
-            break;
         }
     }
     Ok(out)
@@ -1131,4 +1145,34 @@ fn find_cipher_reference(element: &Element) -> Option<String> {
         }
     }
     None
+}
+
+/// The Korrigenda-7 `IvLength Value="N"` hint inside an EncryptedData,
+/// when the peer wrote one. Streams WITHOUT the hint are pre-Korrigenda
+/// legacy: the reference library falls back to a 128-bit IV when nothing
+/// was parsed (EncryptedDataOSCI).
+fn find_iv_length_hint(element: &Element) -> Option<usize> {
+    if element.local == "IvLength"
+        && let Some(value) = element.attr("Value")
+        && let Ok(n) = value.parse::<usize>()
+    {
+        return Some(n);
+    }
+    for child in element.elements() {
+        if let Some(found) = find_iv_length_hint(child) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// IV byte counts to attempt for a GCM stream: the written hint when it
+/// names a legal length, the legacy-16/known-12 pair otherwise. The hint
+/// is untrusted — the GCM tag arbitrates which length was real.
+fn gcm_iv_lengths(hint: Option<usize>) -> &'static [usize] {
+    match hint {
+        Some(12) => &[12],
+        Some(16) => &[16],
+        _ => &[16, 12],
+    }
 }

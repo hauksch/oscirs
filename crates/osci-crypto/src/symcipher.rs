@@ -553,6 +553,24 @@ impl<R: Read> DecryptReader<R> {
         })
     }
 
+    /// Like [`Self::new`], with an explicit IV byte count. AES-GCM
+    /// streams from pre-Korrigenda-7 peers use a 128-bit IV and carry no
+    /// `IvLength` hint, so the length cannot be read off the stream —
+    /// the GCM tag arbitrates between the candidates. CBC paths ignore
+    /// the override (their IV length is the block size).
+    pub fn new_with_iv_len(
+        inner: R,
+        cipher: SymCipher,
+        key: &[u8],
+        iv_len: usize,
+    ) -> Result<Self, CryptoError> {
+        let mut reader = Self::new(inner, cipher, key)?;
+        if matches!(reader.cipher, SymCipher::AesGcm { .. }) {
+            reader.iv_len = iv_len;
+        }
+        Ok(reader)
+    }
+
     fn initialize(&mut self) -> io::Result<()> {
         if self.initialized {
             return Ok(());
@@ -678,5 +696,47 @@ pub mod oneshot {
         r.read_to_end(&mut out)
             .map_err(|e| CryptoError::Decryption(e.to_string()))?;
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod iv_length_tests {
+    use super::*;
+    use std::io::Read;
+
+    /// Legacy peers encrypt AES-GCM with a 128-bit IV and no `IvLength`
+    /// hint on the wire. The decrypt reader must slice those streams
+    /// when given the length, and must NOT silently mis-slice with the
+    /// default 96-bit IV (the tag rejects the wrong split).
+    #[test]
+    fn decrypt_reader_honors_legacy_gcm_iv_length() {
+        let key = [0x42u8; 32];
+        let iv: Vec<u8> = (0..16).collect();
+        let plaintext = b"MIME-Version: 1.0\r\n\r\nlegacy iv probe";
+        let mut gcm = Gcm::new(&key, &iv).unwrap();
+        let mut data = plaintext.to_vec();
+        gcm.encrypt_chunk(&mut data);
+        let tag = gcm.tag();
+        let mut stream = iv.clone();
+        stream.extend_from_slice(&data);
+        stream.extend_from_slice(&tag);
+
+        // the default 12-byte split must not authenticate
+        let mut wrong =
+            DecryptReader::new(&stream[..], SymCipher::AesGcm { key_len: 32 }, &key).unwrap();
+        let mut out = Vec::new();
+        assert!(wrong.read_to_end(&mut out).is_err());
+
+        // the explicit legacy length must recover the plaintext
+        let mut right = DecryptReader::new_with_iv_len(
+            &stream[..],
+            SymCipher::AesGcm { key_len: 32 },
+            &key,
+            16,
+        )
+        .unwrap();
+        let mut out = Vec::new();
+        right.read_to_end(&mut out).unwrap();
+        assert_eq!(out, plaintext);
     }
 }

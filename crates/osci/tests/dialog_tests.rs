@@ -672,21 +672,44 @@ fn chunked_dialog_sequencing_matches_the_reference() {
     let mut dialog = Dialog::new(Box::new(transport))
         .with_signer(Box::new(signer()), "originator_signature".into());
 
-    // the live flow's opener: GetMessageId with a fresh challenge and
-    // sequence 0, no Response, no ConversationId
+    // the sanctioned chunked flow (chunkedexchange oracle, live-proven
+    // against gov.test.osci.de): ONE EXPLICIT dialog. InitDialog opens —
+    // the manager resolves the partials' ConversationId against the
+    // session it establishes; an Init-less GetId leaves no session and
+    // every partial is rejected 9400 regardless of its control block.
+    let mut init = unsigned_out(MessageType::InitDialog, None);
+    let response = dialog.send(&mut init, &[], "MIME_boundary").unwrap();
+    assert_eq!(response.kind, Some(MessageType::ResponseToInitDialog));
+    {
+        let seen = seen.lock().unwrap();
+        let (kind, block) = &seen[0];
+        assert_eq!(*kind, MessageType::InitDialog);
+        assert_eq!(block.sequence_number, None, "opener carries no sequence");
+        assert_eq!(block.response, None, "opener carries no Response");
+        assert_eq!(block.conversation_id, None, "opener carries no dialog id");
+    }
+
+    // the explicit GetId: adopted ConversationId, answers the Init
+    // response's challenge, sequence 0
     let mut get_id = unsigned_out(MessageType::GetMessageId, None);
     let response = dialog.send(&mut get_id, &[], "MIME_boundary").unwrap();
     assert_eq!(response.kind, Some(MessageType::ResponseToGetMessageId));
-
-    let get_id_challenge = {
+    {
         let seen = seen.lock().unwrap();
-        let (kind, block) = &seen[0];
+        let (kind, block) = &seen[1];
         assert_eq!(*kind, MessageType::GetMessageId);
-        assert_eq!(block.sequence_number, Some(0), "opener sequence");
-        assert_eq!(block.response, None, "opener carries no Response");
-        assert_eq!(block.conversation_id, None, "opener carries no dialog id");
-        block.challenge.clone().unwrap()
-    };
+        assert_eq!(block.sequence_number, Some(0), "first post-Init sequence");
+        assert_eq!(
+            block.conversation_id.as_deref(),
+            Some("4711"),
+            "dialog id adopted from the Init response"
+        );
+        assert_eq!(
+            block.response.as_deref(),
+            Some(intermediary_challenge(1).as_str()),
+            "answers the Init response's challenge"
+        );
+    }
 
     // partial requests shaped like the live flow: MessageId =
     // base64(<oscid> + "_Partial"), no Subject, FeatureDescription, one
@@ -729,7 +752,8 @@ fn chunked_dialog_sequencing_matches_the_reference() {
         out
     };
 
-    let mut previous_challenge = get_id_challenge;
+    // partial i: sequence i, chaining the challenge of the response
+    // before it (chunk 1 chains the GetId response = round 2)
     for i in 1..=2 {
         let blob = vec![b'A'; 64];
         let attachments = vec![("ChunkBlobStoreDelivery".to_string(), blob.clone())];
@@ -744,33 +768,29 @@ fn chunked_dialog_sequencing_matches_the_reference() {
         );
 
         let seen = seen.lock().unwrap();
-        let (kind, block) = &seen[i]; // round i+1 was the GetId
+        let (kind, block) = &seen[i + 1]; // [0]=Init, [1]=GetId
         assert_eq!(*kind, MessageType::PartialStoreDelivery);
         assert_eq!(block.sequence_number, Some(i as u32), "chunk {i} sequence");
         assert_eq!(
             block.conversation_id.as_deref(),
             Some("4711"),
-            "chunk {i} dialog id adopted from the opener response"
+            "chunk {i} dialog id adopted from the Init response"
         );
         // the outbound Response answers the manager's previous challenge
         assert_eq!(
             block.response.as_deref(),
-            Some(intermediary_challenge(i).as_str()),
+            Some(intermediary_challenge(i + 1).as_str()),
             "chunk {i} Response chains the previous response challenge"
         );
-        // the outbound Challenge is fresh: not ours before, not the
-        // manager's
-        let challenge = block.challenge.clone().unwrap();
-        assert_ne!(challenge, previous_challenge, "chunk {i} fresh challenge");
+        // the outbound Challenge is fresh: not a replay of the manager's
         assert_ne!(
-            challenge,
-            intermediary_challenge(i),
+            block.challenge.as_deref(),
+            Some(intermediary_challenge(i + 1).as_str()),
             "chunk {i} challenge is not a manager replay"
         );
         drop(seen);
-        previous_challenge = challenge;
     }
-    assert_eq!(seen.lock().unwrap().len(), 3, "opener + two chunks");
+    assert_eq!(seen.lock().unwrap().len(), 4, "init + get_id + two chunks");
 }
 
 /// Issue #7 part 1: feedback 3800 ("more deliveries pending after a

@@ -1,4 +1,9 @@
-# osci-rust-rewrite
+# osci-rust-rewrite (oscirs)
+
+[![ci](https://github.com/hauksch/oscirs/actions/workflows/ci.yml/badge.svg)](https://github.com/hauksch/oscirs/actions/workflows/ci.yml)
+[![audit](https://github.com/hauksch/oscirs/actions/workflows/audit.yml/badge.svg)](https://github.com/hauksch/oscirs/actions/workflows/audit.yml)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
+[![deps: cargo-deny](https://img.shields.io/badge/dependencies-cargo--deny%20%2B%20SBOM-success.svg)](deny.toml)
 
 A from-scratch Rust implementation of the **OSCI-Transport 1.2** client
 library, developed test-first against the Java reference implementation
@@ -159,3 +164,23 @@ Every layer is gated against the pinned reference:
 - **License**: MIT OR Apache-2.0 (upstream is EUPL-1.2 OR MIT).
 - **Ecosystem**: FITKO's `osci-transport-rs` (EUPL, Matrix G2X) exists —
   watch/coordinate.
+
+## Security & supply chain
+
+`cargo deny` fails the build on vulnerable or yanked dependencies,
+license violations and unknown crate registries (documented exceptions
+carry a written rationale in `deny.toml`); the audit workflow attaches
+a CycloneDX SBOM as an artifact and runs weekly so new RustSec
+advisories surface without commit activity. Dependency updates arrive
+as Dependabot pull requests only — nothing is auto-merged. Found
+something sensitive? Please use GitHub's *private* vulnerability
+reporting instead of opening a public issue.
+
+## Ecosystem
+
+- [rosci](https://github.com/hauksch/rosci) — a command-line client and
+  REST server built on this stack: the OSCI-Transport 1.2 ceremony
+  behind one honest binary.
+- [safedir](https://github.com/hauksch/safedir) — SAFE directory
+  resolution: the counterpart that decides *where and to whom* an OSCI
+  message goes.
