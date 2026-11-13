@@ -2,7 +2,7 @@ name: audit
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
   schedule:
     # Weekly, so new RustSec advisories surface without commit activity.
@@ -20,6 +20,8 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # stable
+        with:
+          toolchain: stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - uses: taiki-e/install-action@5d74846a2a474d70ac366d25bf5dc1b6f882799e
         with:
