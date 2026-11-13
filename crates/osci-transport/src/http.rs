@@ -26,7 +26,7 @@ impl HttpTransportTls {
 }
 
 /// Configuration for the HTTP transport.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct HttpTransportConfig {
     /// Intermediary endpoint, e.g. `http://intermed:8080/osci/externalentry`.
     pub endpoint: String,
@@ -39,6 +39,18 @@ pub struct HttpTransportConfig {
     pub user_agent: String,
     /// TLS trust anchors and mutual-TLS client identity.
     pub tls: HttpTransportTls,
+}
+
+impl Default for HttpTransportConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: String::new(),
+            timeout_ms: 120_000,
+            proxy: None,
+            user_agent: "osci-rust/0.1".into(),
+            tls: HttpTransportTls::default(),
+        }
+    }
 }
 
 /// `Transport` over HTTP(S) using `ureq`.
@@ -92,8 +104,7 @@ impl HttpTransport {
                 .collect();
             let key = ureq::tls::PrivateKey::from_pem(tls.client_key_pem.as_bytes())
                 .map_err(|e| TransportError::new(format!("tls client key: {e}")))?;
-            builder = builder
-                .client_cert(Some(ureq::tls::ClientCert::new_with_certs(&chain, key)));
+            builder = builder.client_cert(Some(ureq::tls::ClientCert::new_with_certs(&chain, key)));
         }
         Ok(builder.build())
     }
@@ -159,6 +170,10 @@ mod tls_tests {
             ..Default::default()
         };
         let err = HttpTransport::new(config).expect_err("broken key must fail");
-        assert!(err.message().contains("tls client key"), "{}", err.message());
+        assert!(
+            err.message().contains("tls client key"),
+            "{}",
+            err.message()
+        );
     }
 }

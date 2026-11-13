@@ -1,0 +1,61 @@
+# cargo-deny configuration: aligned with the sibling repos (rosci,
+# safedir). Vulnerable or yanked dependencies fail the build; unknown
+# crate registries fail the build; the license list is a reviewed
+# allow-list, not a suggestion.
+
+[graph]
+# Evaluate the graph with every feature enabled, matching the widest
+# build the CI runs.
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+unmaintained = "workspace"
+# RUSTSEC-2023-0071 (Marvin Attack on the RustCrypto `rsa` crate): no
+# patched release exists, and RSA key transport is what OSCI 1.2
+# mandates. Exposure is transport-only (partner-chosen ciphertexts for
+# session-key unwrap); the specification leaves no algorithm choice
+# here. Accepted with that rationale — revisit when RustCrypto/RSA#626
+# lands. (Documented identically in the sibling repos.)
+ignore = [
+    # RUSTSEC-2023-0071 (Marvin Attack on the RustCrypto `rsa` crate): no
+    # patched release exists, and RSA key transport is what OSCI 1.2
+    # mandates. Exposure is transport-only (partner-chosen ciphertexts for
+    # session-key unwrap); the specification leaves no algorithm choice
+    # here. Accepted with that rationale — revisit when RustCrypto/RSA#626
+    # lands. (Documented identically in the sibling repos.)
+    "RUSTSEC-2023-0071",
+    # RUSTSEC-2026-0387 (crypto-bigint timing variability): the fix is a
+    # semver bump to 0.7.x that elliptic-curve 0.13 (p256/p384 ECDSA)
+    # cannot take yet — upstream-blocked. Exposure is on the ECDSA *verify*
+    # path only (partner signatures); private-key operations are RSA.
+    # Revisit with the p256/p384 0.14 line. (Documented identically in
+    # the sibling repos.)
+    "RUSTSEC-2026-0387",
+]
+
+[licenses]
+version = 2
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "Zlib",
+  "CDLA-Permissive-2.0",
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+
+[bans]
+multiple-versions = "warn"
+# The workspace's internal path dependencies (../osci-core et al) are
+# wildcard version requirements by nature — warn instead of deny.
+wildcards = "warn"

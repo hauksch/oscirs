@@ -722,8 +722,8 @@ mod iv_length_tests {
         stream.extend_from_slice(&tag);
 
         // the default 12-byte split must not authenticate
-        let mut wrong = DecryptReader::new(&stream[..], SymCipher::AesGcm { key_len: 32 }, &key)
-            .unwrap();
+        let mut wrong =
+            DecryptReader::new(&stream[..], SymCipher::AesGcm { key_len: 32 }, &key).unwrap();
         let mut out = Vec::new();
         assert!(wrong.read_to_end(&mut out).is_err());
 

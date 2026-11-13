@@ -1103,10 +1103,11 @@ pub fn decrypt_attachments(
         'iv: for iv_len in iv_lengths {
             for ciphertext in &candidates {
                 let mut plain = Vec::new();
-                let mut dr = match DecryptReader::new_with_iv_len(&ciphertext[..], cipher, &key, *iv_len) {
-                    Ok(dr) => dr,
-                    Err(_) => continue,
-                };
+                let mut dr =
+                    match DecryptReader::new_with_iv_len(&ciphertext[..], cipher, &key, *iv_len) {
+                        Ok(dr) => dr,
+                        Err(_) => continue,
+                    };
                 if dr.read_to_end(&mut plain).is_err() || plain.is_empty() {
                     continue;
                 }
@@ -1151,12 +1152,11 @@ fn find_cipher_reference(element: &Element) -> Option<String> {
 /// legacy: the reference library falls back to a 128-bit IV when nothing
 /// was parsed (EncryptedDataOSCI).
 fn find_iv_length_hint(element: &Element) -> Option<usize> {
-    if element.local == "IvLength" {
-        if let Some(value) = element.attr("Value") {
-            if let Ok(n) = value.parse::<usize>() {
-                return Some(n);
-            }
-        }
+    if element.local == "IvLength"
+        && let Some(value) = element.attr("Value")
+        && let Ok(n) = value.parse::<usize>()
+    {
+        return Some(n);
     }
     for child in element.elements() {
         if let Some(found) = find_iv_length_hint(child) {
