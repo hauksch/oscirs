@@ -3,14 +3,14 @@
 
 use crate::algorithms::{DEFAULT_GCM_IV_LENGTH, SymCipher};
 use crate::error::CryptoError;
-use rand::RngCore;
+use rand::Rng as _;
 
 /// Generate a random session key for a cipher URI.
 pub fn create_sym_key(cipher_uri: &str) -> Result<Vec<u8>, CryptoError> {
     let cipher = SymCipher::from_uri(cipher_uri)
         .ok_or_else(|| CryptoError::UnsupportedAlgorithm(cipher_uri.to_string()))?;
     let mut key = vec![0u8; cipher.key_length()];
-    rand::thread_rng().fill_bytes(&mut key);
+    rand::rng().fill_bytes(&mut key);
     Ok(key)
 }
 
@@ -24,7 +24,7 @@ pub fn create_iv(cipher_uri: &str, iv_length: Option<usize>) -> Result<Vec<u8>, 
         _ => cipher.iv_length(),
     };
     let mut iv = vec![0u8; len];
-    rand::thread_rng().fill_bytes(&mut iv);
+    rand::rng().fill_bytes(&mut iv);
     Ok(iv)
 }
 

@@ -9,11 +9,11 @@
 
 use std::io::{self, Read, Write};
 
-use aes::cipher::{BlockEncrypt, KeyInit, KeyIvInit};
+use aes::cipher::{BlockCipherEncrypt, KeyInit, KeyIvInit};
 use aes::{Aes128, Aes192, Aes256, Block};
 use des::TdesEde3;
 use ghash::universal_hash::UniversalHash as _;
-use rand::RngCore;
+use rand::Rng as _;
 
 use crate::algorithms::SymCipher;
 use crate::error::CryptoError;
@@ -74,7 +74,7 @@ impl Gcm {
         let aes = AesCore::new(key)?;
         let mut h = [0u8; 16];
         aes.encrypt_block(&mut h);
-        let ghash = ghash::GHash::new(ghash::Key::from_slice(&h));
+        let ghash = ghash::GHash::new(&ghash::Key::from(h));
 
         let (j0, ej0) = match iv.len() {
             12 => {
@@ -86,7 +86,7 @@ impl Gcm {
                 (j0, ej0)
             }
             n => {
-                let mut ghash = ghash::GHash::new(ghash::Key::from_slice(&h));
+                let mut ghash = ghash::GHash::new(&ghash::Key::from(h));
                 for chunk in iv.chunks(16) {
                     let mut block = [0u8; 16];
                     block[..chunk.len()].copy_from_slice(chunk);
@@ -199,26 +199,27 @@ enum EncCore {
 impl EncCore {
     /// `block.len()` is the cipher's block size (16 for AES, 8 for 3DES).
     fn encrypt(&mut self, block: &mut [u8]) {
-        use aes::cipher::BlockEncryptMut as _;
+        use aes::cipher::BlockModeEncrypt as _;
         match self {
             Self::Aes128(c) => {
-                let mut b = Block::clone_from_slice(block);
-                c.encrypt_block_mut(&mut b);
+                let mut b = Block::try_from(&*block).expect("block is a full AES block");
+                c.encrypt_block(&mut b);
                 block.copy_from_slice(b.as_slice());
             }
             Self::Aes192(c) => {
-                let mut b = Block::clone_from_slice(block);
-                c.encrypt_block_mut(&mut b);
+                let mut b = Block::try_from(&*block).expect("block is a full AES block");
+                c.encrypt_block(&mut b);
                 block.copy_from_slice(b.as_slice());
             }
             Self::Aes256(c) => {
-                let mut b = Block::clone_from_slice(block);
-                c.encrypt_block_mut(&mut b);
+                let mut b = Block::try_from(&*block).expect("block is a full AES block");
+                c.encrypt_block(&mut b);
                 block.copy_from_slice(b.as_slice());
             }
             Self::Des(c) => {
-                let mut b = <aes::cipher::generic_array::GenericArray<u8, aes::cipher::typenum::U8>>::clone_from_slice(block);
-                c.encrypt_block_mut(&mut b);
+                let mut b = <aes::cipher::Array<u8, aes::cipher::typenum::U8>>::try_from(&*block)
+                    .expect("block is a full 3DES block");
+                c.encrypt_block(&mut b);
                 block.copy_from_slice(&b);
             }
         }
@@ -234,26 +235,27 @@ enum DecCore {
 
 impl DecCore {
     fn decrypt(&mut self, block: &mut [u8]) {
-        use aes::cipher::BlockDecryptMut as _;
+        use aes::cipher::BlockModeDecrypt as _;
         match self {
             Self::Aes128(c) => {
-                let mut b = Block::clone_from_slice(block);
-                c.decrypt_block_mut(&mut b);
+                let mut b = Block::try_from(&*block).expect("block is a full AES block");
+                c.decrypt_block(&mut b);
                 block.copy_from_slice(b.as_slice());
             }
             Self::Aes192(c) => {
-                let mut b = Block::clone_from_slice(block);
-                c.decrypt_block_mut(&mut b);
+                let mut b = Block::try_from(&*block).expect("block is a full AES block");
+                c.decrypt_block(&mut b);
                 block.copy_from_slice(b.as_slice());
             }
             Self::Aes256(c) => {
-                let mut b = Block::clone_from_slice(block);
-                c.decrypt_block_mut(&mut b);
+                let mut b = Block::try_from(&*block).expect("block is a full AES block");
+                c.decrypt_block(&mut b);
                 block.copy_from_slice(b.as_slice());
             }
             Self::Des(c) => {
-                let mut b = <aes::cipher::generic_array::GenericArray<u8, aes::cipher::typenum::U8>>::clone_from_slice(block);
-                c.decrypt_block_mut(&mut b);
+                let mut b = <aes::cipher::Array<u8, aes::cipher::typenum::U8>>::try_from(&*block)
+                    .expect("block is a full 3DES block");
+                c.decrypt_block(&mut b);
                 block.copy_from_slice(&b);
             }
         }
@@ -447,7 +449,7 @@ impl<'a, W: Write> EncryptWriter<'a, W> {
         };
         let iv = iv.map(<[u8]>::to_vec).unwrap_or_else(|| {
             let mut iv = vec![0u8; iv_len];
-            rand::thread_rng().fill_bytes(&mut iv);
+            rand::rng().fill_bytes(&mut iv);
             iv
         });
         if iv.len() != iv_len {

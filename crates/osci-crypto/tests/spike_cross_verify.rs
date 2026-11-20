@@ -170,9 +170,8 @@ fn rust_pss_signature_verifies_in_java() {
         return;
     }
     let signer_key = load_key("alice_signature_4096.pem");
-    let mut rng = rand::thread_rng();
     let signature = SigningKey::<Sha256>::new(signer_key)
-        .sign_with_rng(&mut rng, PAYLOAD)
+        .sign_with_rng(&mut rand_core::OsRng, PAYLOAD)
         .to_vec();
 
     let stdin = format!(
@@ -197,9 +196,8 @@ fn rust_oaep_wrap_opens_in_java() {
     let public = RsaPublicKey::from(&cipher_key);
     let session_key: [u8; 32] = core::array::from_fn(|i| i as u8 ^ 0xA5);
 
-    let mut rng = rand::thread_rng();
     let wrapped = public
-        .encrypt(&mut rng, Oaep::new::<Sha256>(), &session_key)
+        .encrypt(&mut rand_core::OsRng, Oaep::new::<Sha256>(), &session_key)
         .expect("rsa OAEP encrypt failed");
 
     let stdin = format!("wrapped_key_b64={}\n", B64.encode(&wrapped));

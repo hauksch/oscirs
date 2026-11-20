@@ -21,6 +21,7 @@ use osci_core::xml::c14n::{Canonicalization, canonicalize, digest_bytes};
 use osci_core::xml::parser;
 use osci_core::xml::{Document, Element};
 use osci_crypto::algorithms::{KEY_TRANSPORT_RSA_1_5, SymCipher};
+use osci_crypto::rand_core::OsRng;
 use osci_crypto::software::{Decrypter, verify_rsa};
 use osci_crypto::symcipher::DecryptReader;
 
@@ -618,9 +619,8 @@ fn session_key_with_wraps(
         let wrapped = match config.key_transport.algorithm.as_str() {
             a if a == osci_crypto::algorithms::KEY_TRANSPORT_RSA_1_5 => {
                 use osci_crypto::rsa::Pkcs1v15Encrypt;
-                let mut rng = rand::thread_rng();
                 public
-                    .encrypt(&mut rng, Pkcs1v15Encrypt, &session_key)
+                    .encrypt(&mut OsRng, Pkcs1v15Encrypt, &session_key)
                     .map_err(|e| SecurityError::Decrypt(e.to_string()))?
             }
             _ => {
@@ -629,8 +629,7 @@ fn session_key_with_wraps(
                     .digest
                     .as_deref()
                     .unwrap_or(osci_crypto::algorithms::DIGEST_SHA256);
-                let mut rng = rand::thread_rng();
-                wrap_oaep(&public, &session_key, digest, &mut rng)?
+                wrap_oaep(&public, &session_key, digest, &mut OsRng)?
             }
         };
         wraps.push(wrapped);
@@ -644,7 +643,7 @@ fn wrap_oaep(
     public: &osci_crypto::rsa::RsaPublicKey,
     data: &[u8],
     digest_uri: &str,
-    rng: &mut (impl rand::CryptoRng + rand::RngCore),
+    rng: &mut OsRng,
 ) -> Result<Vec<u8>, SecurityError> {
     use osci_crypto::rsa::Oaep;
     let digest = match digest_uri {
@@ -747,8 +746,8 @@ pub fn encrypt_message_for(
         .map_err(|e| SecurityError::Decrypt(e.to_string()))?;
     let mut iv = osci_crypto::calc::create_iv(&config.content_cipher, None)
         .map_err(|e| SecurityError::Decrypt(e.to_string()))?;
-    use rand::RngCore as _;
-    rand::thread_rng().fill_bytes(&mut iv);
+    use rand::Rng as _;
+    rand::rng().fill_bytes(&mut iv);
     // oneshot output is already [IV][ciphertext+tag]
     let framed = osci_crypto::symcipher::oneshot::encrypt(cipher, &session_key, &iv, signed_stream)
         .map_err(|e| SecurityError::Decrypt(e.to_string()))?;
@@ -764,15 +763,14 @@ pub fn encrypt_message_for(
             .digest
             .as_deref()
             .unwrap_or(osci_crypto::algorithms::DIGEST_SHA256);
-        let mut rng = rand::thread_rng();
         match config.key_transport.algorithm.as_str() {
             a if a == osci_crypto::algorithms::KEY_TRANSPORT_RSA_1_5 => {
                 use osci_crypto::rsa::Pkcs1v15Encrypt;
                 public
-                    .encrypt(&mut rng, Pkcs1v15Encrypt, &session_key)
+                    .encrypt(&mut OsRng, Pkcs1v15Encrypt, &session_key)
                     .map_err(|e| SecurityError::Decrypt(e.to_string()))?
             }
-            _ => wrap_oaep(&public, &session_key, digest, &mut rng)?,
+            _ => wrap_oaep(&public, &session_key, digest, &mut OsRng)?,
         }
     };
 

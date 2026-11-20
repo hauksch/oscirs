@@ -19,7 +19,7 @@ use std::sync::OnceLock;
 
 use osci_crypto::algorithms::{DEFAULT_SYMMETRIC_CIPHER, SymCipher};
 use osci_crypto::symcipher::oneshot;
-use rand::RngCore;
+use rand::Rng as _;
 
 /// Default in-memory limit before swapping to disk.
 pub const DEFAULT_MAX_BUFFER_SIZE: u64 = 4 * 1024 * 1024;
@@ -33,7 +33,7 @@ fn temp_key() -> &'static [u8; 32] {
     static KEY: OnceLock<[u8; 32]> = OnceLock::new();
     KEY.get_or_init(|| {
         let mut bytes = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut bytes);
+        rand::rng().fill_bytes(&mut bytes);
         bytes
     })
 }
@@ -299,7 +299,7 @@ impl SwapBuffer {
         path.push(format!(
             "osci-{}-{}",
             std::process::id(),
-            rand::thread_rng().next_u32()
+            rand::rng().next_u32()
         ));
         // 0600: the spill file may hold plaintext (non-confidential mode)
         // and must not be readable by other users on multi-user hosts.
@@ -361,7 +361,7 @@ impl SwapBuffer {
 
 fn write_encrypted_frame(writer: &mut impl Write, plain: &[u8]) -> io::Result<()> {
     let mut iv = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut iv);
+    rand::rng().fill_bytes(&mut iv);
     let frame = oneshot::encrypt(frame_cipher(), temp_key(), &iv, plain)
         .map_err(|_| io::Error::other("swap buffer encryption failed"))?;
     writer.write_all(&(frame.len() as u32).to_be_bytes())?;

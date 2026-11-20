@@ -14,4 +14,5 @@ pub mod weak;
 
 pub use certificate::{Certificate, EcPublicKey, KeyKind};
 pub use error::CryptoError;
+pub use rand_core;
 pub use rsa;
