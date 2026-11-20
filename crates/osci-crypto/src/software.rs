@@ -59,8 +59,9 @@ pub fn sign_rsa(
     macro_rules! pss_sign {
         ($digest:ty) => {{
             let signing_key: SigningKey<$digest> = SigningKey::new(key.clone());
-            let mut rng = rand::thread_rng();
-            signing_key.sign_with_rng(&mut rng, data).to_vec()
+            signing_key
+                .sign_with_rng(&mut rand_core::OsRng, data)
+                .to_vec()
         }};
     }
     macro_rules! v15_sign {
@@ -207,7 +208,7 @@ pub fn wrap_session_key(
     digest_algorithm: &str,
 ) -> Result<Vec<u8>, CryptoError> {
     let public = cert.rsa_public_key()?;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand_core::OsRng;
     match algorithm {
         DEFAULT_KEY_TRANSPORT => {
             // Java: SHA-3 digests are mapped to SHA-256/512 for OAEP

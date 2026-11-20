@@ -209,7 +209,7 @@ fn gcm_matches_aes_gcm_crate() {
     // reference: aes-gcm 0.10 with the same key/nonce
     let cipher = aes_gcm::Aes256Gcm::new_from_slice(&key).unwrap();
     let expected = cipher
-        .encrypt(aes_gcm::Nonce::from_slice(&iv), data.as_slice())
+        .encrypt(&aes_gcm::Nonce::from(iv), data.as_slice())
         .unwrap();
     assert_eq!(
         &ours[12..],
@@ -272,7 +272,8 @@ fn rsa_sign_verify_all_registry_algorithms() {
 fn ecdsa_sign_verify() {
     use osci_crypto::software::{sign_ec_p256, verify_ec_p256};
     // generate a p-256 key (no fixture PEM needed for a pure roundtrip)
-    let secret = p256::SecretKey::random(&mut rand::rngs::OsRng);
+    use p256::elliptic_curve::Generate as _;
+    let secret = p256::SecretKey::generate_from_rng(&mut rand::rng());
     let signing = p256::ecdsa::SigningKey::from(&secret);
     let verifying = p256::ecdsa::VerifyingKey::from(&signing);
     let data = b"ecdsa roundtrip";

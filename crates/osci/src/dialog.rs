@@ -211,8 +211,8 @@ impl Dialog {
 
     fn fresh_challenge(&self) -> String {
         let mut bytes = [0u8; 16];
-        use rand::RngCore as _;
-        rand::thread_rng().fill_bytes(&mut bytes);
+        use rand::Rng as _;
+        rand::rng().fill_bytes(&mut bytes);
         osci_core::helper::base64::encode(&bytes)
     }
 

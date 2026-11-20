@@ -19,6 +19,11 @@ unmaintained = "workspace"
 # here. Accepted with that rationale — revisit when RustCrypto/RSA#626
 # lands. (Documented identically in the sibling repos.)
 ignore = [
+    # RUSTSEC-2026-0543 (chrono unmaintained): timestamps only — dialog
+    # stamps and XSD dateTime fields. Migration target is jiff/time once
+    # the API surface (OutProcessCard etc.) moves; no safe in-place
+    # upgrade exists. (Documented identically in the sibling repos.)
+    "RUSTSEC-2026-0543",
     # RUSTSEC-2023-0071 (Marvin Attack on the RustCrypto `rsa` crate): no
     # patched release exists, and RSA key transport is what OSCI 1.2
     # mandates. Exposure is transport-only (partner-chosen ciphertexts for
